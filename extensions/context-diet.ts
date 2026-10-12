@@ -965,14 +965,18 @@ export default function contextDiet(pi: ExtensionAPI) {
 			const t = ctx.ui.theme;
 			// `always` rewrites the prompt cache on every pass: never let it go unnoticed.
 			const warn = config.mode === "always" ? t.fg("warning", " ⚠ mode always") : "";
+			const compact = config.compact ? t.fg("dim", ` · compact ≥${formatTokens(config.compactAboveTokens)}`) : "";
 			if (stats.lastCount + stats.lastArgCount === 0) {
-				ctx.ui.setStatus("context-diet", warn ? `${t.fg("warning", "🥗")}${warn}` : "");
+				// Nothing elided yet (in cold mode that is normal until a pause): say it is on, and what a cold start would take.
+				const next = lastMessages ? staleTokens(lastMessages, policyOf(config, protectedTools), elided, elidedArgs, config.elideArgs, cpt()) : 0;
+				const text = next > 0 ? `${t.fg("accent", `−${formatTokens(next)}`)} ${t.fg("dim", "at the next pause")}` : t.fg("dim", "on");
+				ctx.ui.setStatus("context-diet", `${t.fg(warn ? "warning" : "success", "🥗")} ${text}${compact}${warn}`);
 				return;
 			}
 			const recovered = meter.recovered > 0 ? t.fg("warning", ` ↺${meter.recovered}`) : "";
 			ctx.ui.setStatus(
 				"context-diet",
-				`${t.fg("success", "🥗")} ${t.fg("accent", `−${formatTokens(estimateTokens(stats.lastChars, cpt()))}`)} ${t.fg("dim", `/req · ${formatTokens(estimateTokens(stats.cumulativeChars, cpt()))} saved`)}${recovered}${warn}`,
+				`${t.fg("success", "🥗")} ${t.fg("accent", `−${formatTokens(estimateTokens(stats.lastChars, cpt()))}`)} ${t.fg("dim", `/req · ${formatTokens(estimateTokens(stats.cumulativeChars, cpt()))} saved`)}${recovered}${compact}${warn}`,
 			);
 		} catch {
 			/* ignore */
@@ -1028,7 +1032,10 @@ export default function contextDiet(pi: ExtensionAPI) {
 			force = false;
 			const result = applyElision(messages, elided, { argIds: elidedArgs, preview: { tail: config.stubTailLines, errors: config.stubErrorLines } });
 			pendingChars = charsOfMessages(result.messages);
-			if (result.count + result.argCount === 0) return undefined;
+			if (result.count + result.argCount === 0) {
+				showStatus(ctx);
+				return undefined;
+			}
 			meter.track(result.infos);
 			stats.requests++;
 			stats.lastCount = result.count;

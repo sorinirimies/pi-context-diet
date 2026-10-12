@@ -444,15 +444,42 @@ describe("extension wiring", () => {
 		expect(t.statuses.at(-1)).toContain("⚠ mode always");
 	});
 
-	it("says nothing in the default cold mode, when disabled, or without a UI", async () => {
+	it("shows 🥗 on in the default cold mode (no warning), and nothing when disabled, hidden or without a UI", async () => {
 		const cold = await boot();
 		expect(cold.notes).toEqual([]);
-		expect(cold.statuses.at(-1)).toBe("");
+		expect(cold.statuses.at(-1)).toContain("🥗");
+		expect(cold.statuses.at(-1)).toContain("on");
+		expect(cold.statuses.at(-1)).not.toContain("⚠");
 		const off = await boot({ config: { mode: "always", enabled: false } });
 		expect(off.notes).toEqual([]);
+		expect(off.statuses.at(-1)).toBe("");
+		const hidden = await boot({ config: { showStatus: false } });
+		expect(hidden.statuses.at(-1)).toBe("");
 		const quiet = await boot({ config: { mode: "always" }, hasUI: false });
 		expect(quiet.notes).toEqual([]);
 		expect(quiet.statuses).toEqual([]);
+	});
+
+	it("the footer is visible before anything is elided: it says what the next pause would drop", async () => {
+		const t = await boot({ config: { keepTurns: 5 } });
+		expect(t.statuses.at(-1)).toContain("on"); // session start, no request yet
+		t.request(longConvo(MIN)); // warm cache: nothing is elided, but 24 stale results are waiting
+		expect(t.statuses.at(-1)).toMatch(/🥗 −\d/);
+		expect(t.statuses.at(-1)).toContain("at the next pause");
+		t.request(convo(3, { endTs: clock - MIN })); // nothing stale at all
+		expect(t.statuses.at(-1)).toContain("on");
+		expect(t.statuses.at(-1)).not.toContain("at the next pause");
+	});
+
+	it("the footer shows when compaction is on", async () => {
+		const t = await boot({ config: { compact: true, compactAboveTokens: 120_000 } });
+		expect(t.statuses.at(-1)).toContain("compact ≥120.0k");
+		const active = await boot({ config: { keepTurns: 5, compact: true } });
+		active.request(longConvo(10 * MIN));
+		expect(active.statuses.at(-1)).toContain("−");
+		expect(active.statuses.at(-1)).toContain("compact ≥150.0k");
+		const plain = await boot({ config: { compact: false } });
+		expect(plain.statuses.at(-1)).not.toContain("compact");
 	});
 
 	it("a failing notify cannot break session start", async () => {
@@ -468,7 +495,8 @@ describe("extension wiring", () => {
 		await t.command.handler("mode always", t.ctx);
 		expect(t.statuses.at(-1)).toContain("⚠ mode always");
 		await t.command.handler("mode cold", t.ctx);
-		expect(t.statuses.at(-1)).toBe("");
+		expect(t.statuses.at(-1)).toContain("🥗");
+		expect(t.statuses.at(-1)).not.toContain("⚠");
 	});
 
 	// -- calibration ---------------------------------------------------------------------------------------
