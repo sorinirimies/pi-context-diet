@@ -52,7 +52,7 @@ describe("every command documented in the README works", () => {
 
 	it("finds every command in the README", () => {
 		const cmds = readmeCommands();
-		for (const must of ["", "on", "off", "now", "keep 5", "ttl 60", "mode cold", "mode always"]) expect(cmds, must).toContain(must);
+		for (const must of ["", "on", "off", "now", "keep 5", "ttl 60", "mode cold", "mode always", "args on", "args off"]) expect(cmds, must).toContain(must);
 	});
 
 	it("each example parses (none is `invalid`) and runs with a success notification", async () => {
@@ -69,6 +69,6 @@ describe("every command documented in the README works", () => {
 	it("the documented defaults match the code", () => {
 		const md = readme();
 		const json = JSON.parse(md.match(/```json\n([\s\S]*?)```/)![1]);
-		expect(json).toEqual({ enabled: true, mode: "cold", keepTurns: 20, minChars: 1500, cacheTtlMinutes: 5, keepErrors: true, neverElide: [], showStatus: true });
+		expect(json).toEqual({ enabled: true, mode: "cold", keepTurns: 20, minChars: 1500, cacheTtlMinutes: 5, keepErrors: true, neverElide: [], showStatus: true, stubTailLines: 3, stubErrorLines: 3, elideArgs: true, autoProtect: true, recoveryThreshold: 0.25 });
 	});
 });

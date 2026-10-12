@@ -27,6 +27,11 @@ describe("parseCommand", () => {
 		expect(parseCommand("mode ALWAYS")).toEqual({ kind: "mode", mode: "always" });
 		for (const bad of ["mode", "mode sometimes"]) expect(parseCommand(bad).kind, bad).toBe("invalid");
 	});
+	it("args <on|off>", () => {
+		expect(parseCommand("args on")).toEqual({ kind: "args", on: true });
+		expect(parseCommand("ARGS  OFF")).toEqual({ kind: "args", on: false });
+		for (const bad of ["args", "args maybe"]) expect(parseCommand(bad).kind, bad).toBe("invalid");
+	});
 	it("unknown words say what is valid", () => {
 		const c = parseCommand("bogus");
 		expect(c.kind).toBe("invalid");
@@ -38,7 +43,7 @@ describe("parseCommand", () => {
 describe("completions", () => {
 	it("offers every command at the top level, each with a string value and label", () => {
 		const items = completions("")!;
-		expect(items.map((i) => i.label)).toEqual(["status", "on", "off", "now", "keep", "ttl", "mode"]);
+		expect(items.map((i) => i.label)).toEqual(["status", "on", "off", "now", "keep", "ttl", "mode", "args"]);
 		for (const i of items) {
 			expect(typeof i.value).toBe("string");
 			expect(typeof i.label).toBe("string");
@@ -56,5 +61,11 @@ describe("completions", () => {
 		expect(completions("mode ")!.map((i) => i.value)).toEqual(["mode cold", "mode always"]);
 		expect(completions("mode a")!.map((i) => i.value)).toEqual(["mode always"]);
 		expect(completions("mode x")).toBeNull();
+	});
+	it("completes the args argument too", () => {
+		expect(completions("args ")!.map((i) => i.value)).toEqual(["args on", "args off"]);
+		expect(completions("args of")!.map((i) => i.value)).toEqual(["args off"]);
+		expect(completions("args x")).toBeNull();
+		expect(completions("a")!.map((i) => i.value)).toEqual(["args "]);
 	});
 });

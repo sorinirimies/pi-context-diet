@@ -7,11 +7,16 @@
  *
  * Scenarios (matched on the last user message):
  *   "survey"               read five source files one after another, then report the context it received
+ *   "write"                write a 60-line src/summary.ts (a big write argument that goes stale)
+ *   "again"                re-read src/orders.ts: the identical call to an earlier, possibly elided, read
+ *   "stub"                 show the first elision stub it received (with its preview lines)
  *   "still know"/"summar"  just report the context it received
  */
 const port = Number(process.argv[2] ?? 8993);
 
 type Msg = { role: string; content?: unknown; tool_calls?: { function: { name: string; arguments: string } }[] };
+
+const SUMMARY = Array.from({ length: 60 }, (_, i) => `export const summaryRow${i} = { id: "row-${i}", qty: ${i + 1}, price: ${(i + 1) * 3}.5 };`).join("\n") + "\n";
 const FILES = ["src/orders.ts", "src/inventory.ts", "src/billing.ts", "src/shipping.ts", "src/reports.ts"];
 const USAGE = { prompt_tokens: 5_200, completion_tokens: 420, total_tokens: 5_620, prompt_tokens_details: { cached_tokens: 4_300 } };
 
@@ -27,7 +32,9 @@ function report(messages: Msg[]): string {
 	const results = messages.filter((m) => m.role === "tool");
 	const stubs = results.filter((m) => text(m).includes("pi-context-diet:"));
 	const chars = results.reduce((n, m) => n + text(m).length, 0);
-	return `Context I received: ${results.length} tool results, ${stubs.length} of them elided stubs. Tool output total: ${(chars / 1000).toFixed(1)} KB.`;
+	const elidedArgs = messages.filter((m) => m.role === "assistant").flatMap((m) => m.tool_calls ?? []).filter((c) => c.function.arguments.includes("pi-context-diet:")).length;
+	const args = elidedArgs > 0 ? ` ${elidedArgs} tool call${elidedArgs === 1 ? "" : "s"} with elided arguments.` : "";
+	return `Context I received: ${results.length} tool results, ${stubs.length} of them elided stubs. Tool output total: ${(chars / 1000).toFixed(1)} KB.${args}`;
 }
 
 type Reply = { kind: "text"; text: string } | { kind: "tool"; name: string; args: object };
@@ -37,12 +44,23 @@ function decide(messages: Msg[]): Reply {
 	if (last?.role === "tool") {
 		let lastUser = -1;
 		messages.forEach((m, i) => { if (m.role === "user") lastUser = i; });
+		const ask = text(messages[lastUser]).toLowerCase();
 		const calls = messages.slice(lastUser + 1).filter((m) => m.role === "assistant" && m.tool_calls?.length).length;
-		if (calls < FILES.length) return { kind: "tool", name: "read", args: { path: FILES[calls] } };
-		return { kind: "text", text: `Surveyed ${FILES.length} files. ${report(messages)}` };
+		if (/survey/.test(ask)) {
+			if (calls < FILES.length) return { kind: "tool", name: "read", args: { path: FILES[calls] } };
+			return { kind: "text", text: `Surveyed ${FILES.length} files. ${report(messages)}` };
+		}
+		if (/write/.test(ask)) return { kind: "text", text: "Wrote src/summary.ts (60 lines)." };
+		return { kind: "text", text: `Read it again. ${report(messages)}` };
 	}
 	const ask = text(last).toLowerCase();
 	if (ask.includes("survey")) return { kind: "tool", name: "read", args: { path: FILES[0] } };
+	if (ask.includes("write")) return { kind: "tool", name: "write", args: { path: "src/summary.ts", content: SUMMARY } };
+	if (ask.includes("again")) return { kind: "tool", name: "read", args: { path: FILES[0] } };
+	if (ask.includes("stub")) {
+		const first = messages.filter((m) => m.role === "tool").map(text).find((t) => t.includes("pi-context-diet:"));
+		return { kind: "text", text: first ? `The first stub I received:\n${first}` : "I have not received any stubs." };
+	}
 	if (/still know|summar/.test(ask)) return { kind: "text", text: report(messages) };
 	return { kind: "text", text: "Sure. This is the demo model: it only follows the scripted scenarios." };
 }

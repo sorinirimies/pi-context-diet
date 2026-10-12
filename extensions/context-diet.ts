@@ -14,6 +14,12 @@
  * Zero prompt tokens: it only rewrites the messages of a request, never the system prompt, and the
  * saved transcript on disk is untouched.
  *
+ * Three things keep it safe and cheap:
+ *   - stubs carry a preview (the last lines and any error lines), so an exit status or a failure survives;
+ *   - a recovery meter notices when the agent re-fetches something that was elided, shows the real cost,
+ *     and stops eliding a tool whose results keep being needed;
+ *   - stale `write` / `edit` arguments are elided too (the file on disk is the source of truth).
+ *
  * Commands:
  *   /context-diet                 status and savings
  *   /context-diet on | off        turn it on / off (remembered)
@@ -21,6 +27,7 @@
  *   /context-diet keep <turns>    always keep the results of the last N assistant turns
  *   /context-diet ttl <minutes>   how long the prompt cache lives (5 for Anthropic, 60 for extended)
  *   /context-diet mode <cold|always>
+ *   /context-diet args <on|off>   also elide stale write / edit arguments
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -49,6 +56,16 @@ export interface DietConfig {
 	/** Tool names whose results are never elided. */
 	neverElide: string[];
 	showStatus: boolean;
+	/** Lines from the end of an elided output that stay in its stub. */
+	stubTailLines: number;
+	/** Lines mentioning an error (up to this many) that stay in a stub. */
+	stubErrorLines: number;
+	/** Also elide stale `write` content and `edit` old/new text from the tool calls. */
+	elideArgs: boolean;
+	/** Stop eliding a tool for the rest of the session when its results keep being re-fetched. */
+	autoProtect: boolean;
+	/** Share of a tool's elided results that were re-fetched before it is protected (needs a few samples). */
+	recoveryThreshold: number;
 }
 
 export const DEFAULT_CONFIG: DietConfig = {
@@ -60,6 +77,11 @@ export const DEFAULT_CONFIG: DietConfig = {
 	keepErrors: true,
 	neverElide: [],
 	showStatus: true,
+	stubTailLines: 3,
+	stubErrorLines: 3,
+	elideArgs: true,
+	autoProtect: true,
+	recoveryThreshold: 0.25,
 };
 
 const clampInt = (v: unknown, min: number, max: number, fallback: number): number =>
@@ -80,6 +102,14 @@ export function sanitizeConfig(raw: unknown): DietConfig {
 			? [...new Set(r.neverElide.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(Boolean))].slice(0, 50)
 			: [],
 		showStatus: typeof r.showStatus === "boolean" ? r.showStatus : d.showStatus,
+		stubTailLines: clampInt(r.stubTailLines, 0, 10, d.stubTailLines),
+		stubErrorLines: clampInt(r.stubErrorLines, 0, 10, d.stubErrorLines),
+		elideArgs: typeof r.elideArgs === "boolean" ? r.elideArgs : d.elideArgs,
+		autoProtect: typeof r.autoProtect === "boolean" ? r.autoProtect : d.autoProtect,
+		recoveryThreshold:
+			typeof r.recoveryThreshold === "number" && Number.isFinite(r.recoveryThreshold)
+				? Math.min(1, Math.max(0.05, r.recoveryThreshold))
+				: d.recoveryThreshold,
 	};
 }
 
@@ -182,10 +212,36 @@ export function formatSize(chars: number): string {
 	return `${chars} B`;
 }
 
+/** What survives of an elided output: its last lines and the lines that mention an error. */
+export interface Preview {
+	tail: string[];
+	errors: string[];
+}
+
+/** Lines worth keeping from a long output: errors, failures, exceptions (TypeError, AssertionError…). */
+const ERROR_LINE = /(error|fail|exception|panic|fatal|traceback|assertion)/i;
+/** ...except summaries that say nothing went wrong ("0 failed", "0 errors"). */
+const ALL_CLEAR = /\b0 (errors?|failed|failures?|failing)\b/i;
+const PREVIEW_LINE_CHARS = 160;
+
+/** Deterministic: derived only from the original output, so the same result always gives the same preview. */
+export function previewOf(content: unknown, tailLines: number, errorLines: number): Preview {
+	if (tailLines <= 0 && errorLines <= 0) return { tail: [], errors: [] };
+	const text = typeof content === "string" ? content : partsOf(content).map((p) => (p?.type === "text" && typeof p.text === "string" ? p.text : "")).join("\n");
+	const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+	const clipLine = (l: string) => (l.length > PREVIEW_LINE_CHARS ? l.slice(0, PREVIEW_LINE_CHARS - 1) + "…" : l);
+	const tail = tailLines > 0 ? lines.slice(-tailLines) : [];
+	const errors = errorLines > 0 ? lines.filter((l, i) => ERROR_LINE.test(l) && !ALL_CLEAR.test(l) && !(tailLines > 0 && i >= lines.length - tailLines)).slice(-errorLines) : [];
+	return { tail: tail.map(clipLine), errors: errors.map(clipLine) };
+}
+
 /** Deterministic: the same inputs always give the same text, so the prompt prefix stays stable. */
-export function stubText(name: string, label: string, chars: number, lines: number): string {
+export function stubText(name: string, label: string, chars: number, lines: number, preview?: Preview): string {
 	const what = label ? `${name} ${label}` : name;
-	return `[pi-context-diet: the output of ${what} (${formatSize(chars)}, ${lines} lines) was elided from the context to save tokens. Re-run it if you need it again.]`;
+	let out = `[pi-context-diet: the output of ${what} (${formatSize(chars)}, ${lines} lines) was elided from the context to save tokens. Re-run it if you need it again.`;
+	if (preview?.errors.length) out += `\nerror lines:\n${preview.errors.map((l) => `  ${l}`).join("\n")}`;
+	if (preview?.tail.length) out += `\nlast lines:\n${preview.tail.map((l) => `  ${l}`).join("\n")}`;
+	return out + "]";
 }
 
 /** For every message, how many assistant messages come after it. */
@@ -219,11 +275,12 @@ export interface Policy {
 	neverElide: ReadonlySet<string>;
 }
 
-export const policyOf = (c: DietConfig): Policy => ({
+/** `protectedTools` are tools protected for this session by the recovery meter, on top of the configured ones. */
+export const policyOf = (c: DietConfig, protectedTools: Iterable<string> = []): Policy => ({
 	keepTurns: c.keepTurns,
 	minChars: c.minChars,
 	keepErrors: c.keepErrors,
-	neverElide: new Set(c.neverElide),
+	neverElide: new Set([...c.neverElide, ...protectedTools]),
 });
 
 /** Tool results that may be elided now: old enough, big enough, plain text, not an error, not protected. */
@@ -256,39 +313,227 @@ export function isCold(messages: Message[], now: number, ttlMs: number): boolean
 	return last !== undefined && now - last > ttlMs;
 }
 
-/** Which new results to elide on this request (none unless the cache is cold, it was forced, or mode is `always`). */
+// ---------------------------------------------------------------------------
+// Stale write / edit arguments
+// ---------------------------------------------------------------------------
+
+/** Tools whose arguments carry file content that the file on disk already holds. */
+export const ARG_TOOLS: ReadonlySet<string> = new Set(["write", "edit"]);
+
+interface EditArg {
+	oldText?: unknown;
+	newText?: unknown;
+	[key: string]: unknown;
+}
+
+const strLen = (v: unknown) => (typeof v === "string" ? v.length : 0);
+
+/** How many characters of file content a write / edit call carries. */
+export function argChars(name: string, args: Record<string, unknown> | undefined): number {
+	if (!args) return 0;
+	if (name === "write") return strLen(args.content);
+	let n = strLen(args.oldText) + strLen(args.newText);
+	if (Array.isArray(args.edits)) for (const e of args.edits as EditArg[]) n += strLen(e?.oldText) + strLen(e?.newText);
+	return n;
+}
+
+const elidedArg = (v: unknown, path: string) => {
+	const text = typeof v === "string" ? v : "";
+	return `[pi-context-diet: ${lineCount(text)} lines (${formatSize(text.length)}) of ${path || "the file"} elided; the file on disk is authoritative]`;
+};
+
+/** The same call with its bulky content replaced by a short placeholder. */
+export function elideArguments(name: string, args: Record<string, unknown>): Record<string, unknown> {
+	const path = typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : "";
+	if (name === "write") return typeof args.content === "string" ? { ...args, content: elidedArg(args.content, path) } : args;
+	const out: Record<string, unknown> = { ...args };
+	if (typeof out.oldText === "string") out.oldText = elidedArg(out.oldText, path);
+	if (typeof out.newText === "string") out.newText = elidedArg(out.newText, path);
+	if (Array.isArray(args.edits)) {
+		out.edits = (args.edits as EditArg[]).map((e) =>
+			e && typeof e === "object" ? { ...e, ...(typeof e.oldText === "string" ? { oldText: elidedArg(e.oldText, path) } : {}), ...(typeof e.newText === "string" ? { newText: elidedArg(e.newText, path) } : {}) } : e,
+		);
+	}
+	return out;
+}
+
+/** Tool-call ids whose write / edit arguments may be elided: old enough, big enough, and the call succeeded. */
+export function eligibleArgs(messages: Message[], policy: Policy, already: ReadonlySet<string>): string[] {
+	const ages = assistantTurnsAfter(messages);
+	const failed = new Set<string>();
+	const answered = new Set<string>();
+	for (const m of messages) {
+		if (m.role !== "toolResult" || typeof m.toolCallId !== "string") continue;
+		answered.add(m.toolCallId);
+		if (m.isError) failed.add(m.toolCallId);
+	}
+	const ids: string[] = [];
+	messages.forEach((m, i) => {
+		if (m.role !== "assistant" || ages[i] <= policy.keepTurns) return;
+		for (const p of partsOf(m.content)) {
+			if (p?.type !== "toolCall" || typeof p.id !== "string" || typeof p.name !== "string") continue;
+			if (!ARG_TOOLS.has(p.name) || policy.neverElide.has(p.name) || already.has(p.id)) continue;
+			if (!answered.has(p.id) || failed.has(p.id)) continue; // a failed or unanswered call may be retried: keep it
+			if (argChars(p.name, p.arguments) < policy.minChars) continue;
+			ids.push(p.id);
+		}
+	});
+	return ids;
+}
+
+/** Which new results (and write / edit arguments) to elide on this request. None unless the cache is cold, it was forced, or mode is `always`. */
 export function decide(
 	messages: Message[],
 	elided: ReadonlySet<string>,
 	config: DietConfig,
 	ctx: { now: number; force: boolean },
-): { ids: string[]; cold: boolean } {
-	if (!config.enabled) return { ids: [], cold: false };
+	extra: { elidedArgs?: ReadonlySet<string>; protectedTools?: Iterable<string> } = {},
+): { ids: string[]; argIds: string[]; cold: boolean } {
+	if (!config.enabled) return { ids: [], argIds: [], cold: false };
 	const cold = isCold(messages, ctx.now, config.cacheTtlMinutes * 60_000);
-	if (!(ctx.force || cold || config.mode === "always")) return { ids: [], cold };
-	return { ids: eligible(messages, policyOf(config), elided), cold };
+	if (!(ctx.force || cold || config.mode === "always")) return { ids: [], argIds: [], cold };
+	const policy = policyOf(config, extra.protectedTools);
+	return {
+		ids: eligible(messages, policy, elided),
+		argIds: config.elideArgs ? eligibleArgs(messages, policy, extra.elidedArgs ?? new Set()) : [],
+		cold,
+	};
 }
 
-/** Replace the chosen results with stubs. Original messages are never mutated; untouched ones are shared. */
+// ---------------------------------------------------------------------------
+// Applying the elision
+// ---------------------------------------------------------------------------
+
+/** Stable JSON: object keys sorted, so the same call always gives the same signature. */
+export function stableStringify(v: unknown): string {
+	if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+	if (v && typeof v === "object") {
+		const o = v as Record<string, unknown>;
+		return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(",")}}`;
+	}
+	return JSON.stringify(v) ?? "null";
+}
+
+export const callSignature = (name: string, args: unknown) => `${name}:${stableStringify(args ?? {})}`;
+
+/** An elided tool result, remembered so a later identical call can be recognised as a re-fetch. */
+export interface ElidedInfo {
+	id: string;
+	tool: string;
+	sig: string;
+	chars: number;
+}
+
+export interface ApplyOptions {
+	argIds?: ReadonlySet<string>;
+	preview?: { tail: number; errors: number };
+}
+
+/** Replace the chosen results (and arguments) with stubs. Original messages are never mutated; untouched ones are shared. */
 export function applyElision(
 	messages: Message[],
 	elided: ReadonlySet<string>,
-): { messages: Message[]; count: number; savedChars: number } {
-	if (elided.size === 0) return { messages, count: 0, savedChars: 0 };
+	opts: ApplyOptions = {},
+): { messages: Message[]; count: number; argCount: number; savedChars: number; infos: ElidedInfo[] } {
+	const argIds = opts.argIds ?? new Set<string>();
+	if (elided.size === 0 && argIds.size === 0) return { messages, count: 0, argCount: 0, savedChars: 0, infos: [] };
 	const calls = indexCalls(messages);
 	let count = 0;
+	let argCount = 0;
 	let savedChars = 0;
+	const infos: ElidedInfo[] = [];
 	const out = messages.map((m) => {
-		if (m.role !== "toolResult" || typeof m.toolCallId !== "string" || !elided.has(m.toolCallId)) return m;
-		const size = measure(m.content);
-		if (!size.textOnly) return m;
-		const call = calls.get(m.toolCallId);
-		const text = stubText(m.toolName ?? call?.name ?? "tool", call ? describeCall(call.name, call.args) : "", size.chars, size.lines);
-		count++;
-		savedChars += Math.max(0, size.chars - text.length);
-		return { ...m, content: [{ type: "text", text }] };
+		if (m.role === "toolResult" && typeof m.toolCallId === "string" && elided.has(m.toolCallId)) {
+			const size = measure(m.content);
+			if (!size.textOnly) return m;
+			const call = calls.get(m.toolCallId);
+			const tool = m.toolName ?? call?.name ?? "tool";
+			const preview = opts.preview ? previewOf(m.content, opts.preview.tail, opts.preview.errors) : undefined;
+			const text = stubText(tool, call ? describeCall(call.name, call.args) : "", size.chars, size.lines, preview);
+			count++;
+			savedChars += Math.max(0, size.chars - text.length);
+			if (call) infos.push({ id: m.toolCallId, tool, sig: callSignature(call.name, call.args), chars: size.chars });
+			return { ...m, content: [{ type: "text", text }] };
+		}
+		if (m.role === "assistant" && argIds.size > 0 && Array.isArray(m.content)) {
+			let changed = false;
+			const content = (m.content as Part[]).map((p) => {
+				if (p?.type !== "toolCall" || typeof p.id !== "string" || typeof p.name !== "string" || !argIds.has(p.id) || !p.arguments) return p;
+				const before = JSON.stringify(p.arguments).length;
+				const next = elideArguments(p.name, p.arguments);
+				if (next === p.arguments) return p;
+				changed = true;
+				argCount++;
+				savedChars += Math.max(0, before - JSON.stringify(next).length);
+				return { ...p, arguments: next };
+			});
+			return changed ? { ...m, content } : m;
+		}
+		return m;
 	});
-	return count === 0 ? { messages, count: 0, savedChars: 0 } : { messages: out, count, savedChars };
+	return count + argCount === 0 ? { messages, count: 0, argCount: 0, savedChars: 0, infos: [] } : { messages: out, count, argCount, savedChars, infos };
+}
+
+// ---------------------------------------------------------------------------
+// Recovery meter: did the agent need what was elided?
+// ---------------------------------------------------------------------------
+
+/**
+ * Remembers what was elided and notices when the agent re-issues the identical call. Each such re-fetch
+ * costs the output again, so the meter turns "did this hurt?" into a number, and it can tell which tool
+ * to stop eliding.
+ */
+export class RecoveryMeter {
+	private readonly bySig: Map<string, ElidedInfo[]>;
+	private readonly tracked: Set<string>;
+	private readonly counted: Set<string>;
+	readonly perTool: Map<string, { elided: number; recovered: number }>;
+	recovered: number;
+	recoveredChars: number;
+
+	constructor() {
+		this.bySig = new Map();
+		this.tracked = new Set();
+		this.counted = new Set();
+		this.perTool = new Map();
+		this.recovered = 0;
+		this.recoveredChars = 0;
+	}
+
+	/** Idempotent: call it with everything currently elided on each request. */
+	track(infos: ElidedInfo[]): void {
+		for (const info of infos) {
+			if (this.tracked.has(info.id)) continue;
+			this.tracked.add(info.id);
+			(this.bySig.get(info.sig) ?? this.bySig.set(info.sig, []).get(info.sig)!).push(info);
+			const t = this.perTool.get(info.tool) ?? { elided: 0, recovered: 0 };
+			t.elided++;
+			this.perTool.set(info.tool, t);
+		}
+	}
+
+	/** A tool is about to run: is it the identical call to something that was elided (and not yet counted)? */
+	onCall(tool: string, args: unknown): ElidedInfo | undefined {
+		const matches = this.bySig.get(callSignature(tool, args));
+		const hit = matches?.find((m) => !this.counted.has(m.id));
+		if (!hit) return undefined;
+		for (const m of matches!) this.counted.add(m.id); // one call answers every elided copy of the same output
+		this.recovered++;
+		this.recoveredChars += hit.chars;
+		const t = this.perTool.get(hit.tool);
+		if (t) t.recovered++;
+		return hit;
+	}
+
+	elided(): number {
+		return this.tracked.size;
+	}
+
+	/** True when this tool's results keep being re-fetched: enough samples and a high enough share. */
+	shouldProtect(tool: string, threshold: number, minSample = 5): boolean {
+		const t = this.perTool.get(tool);
+		return !!t && t.elided >= minSample && t.recovered / t.elided > threshold;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -296,16 +541,27 @@ export function applyElision(
 // ---------------------------------------------------------------------------
 
 export const ENTRY_TYPE = "context-diet";
+export const PROTECT_ENTRY_TYPE = "context-diet-protect";
 
-export function restoreIds(entries: unknown[]): Set<string> {
-	const ids = new Set<string>();
+/** Rebuild this extension's state from the session's custom entries (resume, fork). */
+export function restoreState(entries: unknown[]): { ids: Set<string>; argIds: Set<string>; protectedTools: Set<string> } {
+	const state = { ids: new Set<string>(), argIds: new Set<string>(), protectedTools: new Set<string>() };
 	for (const e of entries) {
-		const entry = e as { type?: string; customType?: string; data?: { ids?: unknown } } | null;
-		if (entry?.type !== "custom" || entry.customType !== ENTRY_TYPE || !Array.isArray(entry.data?.ids)) continue;
-		for (const id of entry.data.ids) if (typeof id === "string") ids.add(id);
+		const entry = e as { type?: string; customType?: string; data?: { ids?: unknown; argIds?: unknown; tool?: unknown } } | null;
+		if (entry?.type !== "custom") continue;
+		if (entry.customType === ENTRY_TYPE) {
+			for (const [key, into] of [["ids", state.ids], ["argIds", state.argIds]] as const) {
+				const list = entry.data?.[key];
+				if (Array.isArray(list)) for (const id of list) if (typeof id === "string") into.add(id);
+			}
+		} else if (entry.customType === PROTECT_ENTRY_TYPE && typeof entry.data?.tool === "string") {
+			state.protectedTools.add(entry.data.tool);
+		}
 	}
-	return ids;
+	return state;
 }
+
+export const restoreIds = (entries: unknown[]): Set<string> => restoreState(entries).ids;
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -319,10 +575,11 @@ export type Command =
 	| { kind: "keep"; turns: number }
 	| { kind: "ttl"; minutes: number }
 	| { kind: "mode"; mode: Mode }
+	| { kind: "args"; on: boolean }
 	| { kind: "invalid"; message: string };
 
 export const USAGE =
-	"Usage: /context-diet [status] · on · off · now · keep <turns> · ttl <minutes> · mode <cold|always>";
+	"Usage: /context-diet [status] · on · off · now · keep <turns> · ttl <minutes> · mode <cold|always> · args <on|off>";
 
 export function parseCommand(args: string | undefined): Command {
 	const [cmd, p1] = (args ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -354,6 +611,10 @@ export function parseCommand(args: string | undefined): Command {
 			return p1 === "cold" || p1 === "always"
 				? { kind: "mode", mode: p1 }
 				: { kind: "invalid", message: "Usage: /context-diet mode <cold|always>" };
+		case "args":
+			return p1 === "on" || p1 === "off"
+				? { kind: "args", on: p1 === "on" }
+				: { kind: "invalid", message: "Usage: /context-diet args <on|off>" };
 		default:
 			return { kind: "invalid", message: `Unknown option "${cmd}". ${USAGE}` };
 	}
@@ -374,6 +635,7 @@ const TOP_LEVEL: CompletionItem[] = [
 	{ value: "keep ", label: "keep", description: "Always keep the last N assistant turns" },
 	{ value: "ttl ", label: "ttl", description: "Prompt-cache lifetime in minutes" },
 	{ value: "mode ", label: "mode", description: "cold (free) or always" },
+	{ value: "args ", label: "args", description: "Also elide stale write/edit arguments (on or off)" },
 ];
 
 /** `prefix` is the whole argument text typed so far (pi replaces it with `value`). */
@@ -384,7 +646,12 @@ export function completions(prefix: string): CompletionItem[] | null {
 				{ value: "mode cold", label: "cold", description: "Elide only when the prompt cache is already cold (free)" },
 				{ value: "mode always", label: "always", description: "Elide whenever eligible (providers without prompt caching)" },
 			]
-		: TOP_LEVEL;
+		: text.startsWith("args ")
+			? [
+					{ value: "args on", label: "on", description: "Elide stale write content and edit old/new text" },
+					{ value: "args off", label: "off", description: "Keep write and edit arguments in the context" },
+				]
+			: TOP_LEVEL;
 	const out = pool.filter((i) => i.value.startsWith(text));
 	return out.length > 0 ? out : null;
 }
@@ -398,20 +665,36 @@ export interface Stats {
 	cumulativeChars: number;
 	lastChars: number;
 	lastCount: number;
+	lastArgCount: number;
 	coldStarts: number;
 }
 
-const emptyStats = (): Stats => ({ requests: 0, cumulativeChars: 0, lastChars: 0, lastCount: 0, coldStarts: 0 });
+const emptyStats = (): Stats => ({ requests: 0, cumulativeChars: 0, lastChars: 0, lastCount: 0, lastArgCount: 0, coldStarts: 0 });
 
-export function statusLine(config: DietConfig, stats: Stats): string {
-	const head = `pi-context-diet: ${config.enabled ? "on" : "off"} · mode ${config.mode} · keep last ${config.keepTurns} turns · cache ttl ${config.cacheTtlMinutes} min · min ${formatSize(config.minChars)}`;
-	const body = `this session: ${stats.lastCount} results elided (~${formatTokens(estimateTokens(stats.lastChars))} tokens kept out of every request), ~${formatTokens(estimateTokens(stats.cumulativeChars))} tokens saved over ${stats.requests} requests · ${stats.coldStarts} cold start${stats.coldStarts === 1 ? "" : "s"}`;
-	return `${head}\n${body}`;
+export interface RecoverySummary {
+	recovered: number;
+	elided: number;
+	recoveredChars: number;
+	protectedTools: string[];
+}
+
+export function statusLine(config: DietConfig, stats: Stats, recovery?: RecoverySummary): string {
+	const head = `pi-context-diet: ${config.enabled ? "on" : "off"} · mode ${config.mode} · keep last ${config.keepTurns} turns · cache ttl ${config.cacheTtlMinutes} min · min ${formatSize(config.minChars)} · write/edit args ${config.elideArgs ? "elided" : "kept"}`;
+	const args = stats.lastArgCount > 0 ? ` + ${stats.lastArgCount} write/edit arguments` : "";
+	const body = `this session: ${stats.lastCount} results${args} elided (~${formatTokens(estimateTokens(stats.lastChars))} tokens kept out of every request), ~${formatTokens(estimateTokens(stats.cumulativeChars))} tokens saved over ${stats.requests} requests · ${stats.coldStarts} cold start${stats.coldStarts === 1 ? "" : "s"}`;
+	if (!recovery) return `${head}\n${body}`;
+	const rate = recovery.elided > 0 ? Math.round((100 * recovery.recovered) / recovery.elided) : 0;
+	const guard = recovery.protectedTools.length > 0 ? ` · protected: ${recovery.protectedTools.join(", ")}` : "";
+	const rec = `recovery: ${recovery.recovered} of ${recovery.elided} elided results re-fetched (${rate}%, ~${formatTokens(estimateTokens(recovery.recoveredChars))} tokens to re-fetch, once)${guard}`;
+	return `${head}\n${body}\n${rec}`;
 }
 
 export default function contextDiet(pi: ExtensionAPI) {
 	let config: DietConfig = sanitizeConfig({});
 	let elided = new Set<string>();
+	let elidedArgs = new Set<string>();
+	let protectedTools = new Set<string>();
+	let meter = new RecoveryMeter();
 	let stats = emptyStats();
 	let force = false;
 
@@ -419,45 +702,59 @@ export default function contextDiet(pi: ExtensionAPI) {
 	const showStatus = (ctx: ExtensionContext) => {
 		try {
 			if (!ctx.hasUI) return;
-			if (!config.enabled || !config.showStatus || stats.lastCount === 0) {
+			if (!config.enabled || !config.showStatus || stats.lastCount + stats.lastArgCount === 0) {
 				ctx.ui.setStatus("context-diet", "");
 				return;
 			}
 			const t = ctx.ui.theme;
+			const recovered = meter.recovered > 0 ? t.fg("warning", ` ↺${meter.recovered}`) : "";
 			ctx.ui.setStatus(
 				"context-diet",
-				`${t.fg("success", "🥗")} ${t.fg("accent", `−${formatTokens(estimateTokens(stats.lastChars))}`)} ${t.fg("dim", `/req · ${formatTokens(estimateTokens(stats.cumulativeChars))} saved`)}`,
+				`${t.fg("success", "🥗")} ${t.fg("accent", `−${formatTokens(estimateTokens(stats.lastChars))}`)} ${t.fg("dim", `/req · ${formatTokens(estimateTokens(stats.cumulativeChars))} saved`)}${recovered}`,
 			);
 		} catch {
 			/* ignore */
 		}
 	};
 
+	const summary = (): RecoverySummary => ({
+		recovered: meter.recovered,
+		elided: meter.elided(),
+		recoveredChars: meter.recoveredChars,
+		protectedTools: [...protectedTools].sort(),
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
 		config = await loadConfig();
-		elided = restoreIds(ctx.sessionManager?.getEntries?.() ?? []);
+		const state = restoreState(ctx.sessionManager?.getEntries?.() ?? []);
+		elided = state.ids;
+		elidedArgs = state.argIds;
+		protectedTools = state.protectedTools;
+		meter = new RecoveryMeter();
 		stats = emptyStats();
 		force = false;
 		showStatus(ctx);
 	});
 
-	// pi BLOCKS or breaks the request path when a handler misbehaves, so any unexpected error here means
-	// "send the conversation unchanged".
+	// pi misbehaves when a handler throws, so any unexpected error here means "send the conversation unchanged".
 	pi.on("context", (event, ctx) => {
 		try {
 			if (!config.enabled) return undefined;
 			const messages = event.messages as unknown as Message[];
-			const decision = decide(messages, elided, config, { now: Date.now(), force });
-			if (decision.ids.length > 0) {
+			const decision = decide(messages, elided, config, { now: Date.now(), force }, { elidedArgs, protectedTools });
+			if (decision.ids.length > 0 || decision.argIds.length > 0) {
 				for (const id of decision.ids) elided.add(id);
-				pi.appendEntry(ENTRY_TYPE, { ids: decision.ids, cold: decision.cold, at: Date.now() });
+				for (const id of decision.argIds) elidedArgs.add(id);
+				pi.appendEntry(ENTRY_TYPE, { ids: decision.ids, argIds: decision.argIds, cold: decision.cold, at: Date.now() });
 				if (decision.cold) stats.coldStarts++;
 			}
 			force = false;
-			const result = applyElision(messages, elided);
-			if (result.count === 0) return undefined;
+			const result = applyElision(messages, elided, { argIds: elidedArgs, preview: { tail: config.stubTailLines, errors: config.stubErrorLines } });
+			if (result.count + result.argCount === 0) return undefined;
+			meter.track(result.infos);
 			stats.requests++;
 			stats.lastCount = result.count;
+			stats.lastArgCount = result.argCount;
 			stats.lastChars = result.savedChars;
 			stats.cumulativeChars += result.savedChars;
 			showStatus(ctx);
@@ -467,8 +764,28 @@ export default function contextDiet(pi: ExtensionAPI) {
 		}
 	});
 
+	// Recovery meter: an identical call to something that was elided means the agent needed it again.
+	// This handler only observes: it never blocks a tool.
+	pi.on("tool_call", (event, ctx) => {
+		try {
+			if (!config.enabled) return undefined;
+			const hit = meter.onCall(event.toolName, event.input);
+			if (!hit) return undefined;
+			if (config.autoProtect && !protectedTools.has(hit.tool) && meter.shouldProtect(hit.tool, config.recoveryThreshold)) {
+				protectedTools.add(hit.tool);
+				pi.appendEntry(PROTECT_ENTRY_TYPE, { tool: hit.tool, at: Date.now() });
+				const t = meter.perTool.get(hit.tool)!;
+				if (ctx.hasUI) ctx.ui.notify(`context-diet: protecting ${hit.tool} results for the rest of the session (${t.recovered} of ${t.elided} elided ones were re-fetched)`, "warning");
+			}
+			showStatus(ctx);
+		} catch {
+			/* observing must never break a tool call */
+		}
+		return undefined;
+	});
+
 	pi.registerCommand("context-diet", {
-		description: "Elide stale tool results when the prompt cache is cold: status, on/off, now, keep, ttl, mode",
+		description: "Elide stale tool results when the prompt cache is cold: status, on/off, now, keep, ttl, mode, args",
 		getArgumentCompletions: (prefix: string) => completions(prefix),
 		handler: async (args, ctx) => {
 			const cmd = parseCommand(args);
@@ -478,7 +795,7 @@ export default function contextDiet(pi: ExtensionAPI) {
 			};
 			switch (cmd.kind) {
 				case "status":
-					ctx.ui.notify(statusLine(config, stats), "info");
+					ctx.ui.notify(statusLine(config, stats, summary()), "info");
 					return;
 				case "on":
 				case "off":
@@ -509,6 +826,11 @@ export default function contextDiet(pi: ExtensionAPI) {
 							: "context-diet: eliding whenever eligible (use this only without prompt caching: every pass rewrites the cache)",
 						"info",
 					);
+					return;
+				case "args":
+					config.elideArgs = cmd.on;
+					await persist();
+					ctx.ui.notify(`context-diet: stale write/edit arguments will ${cmd.on ? "be elided too" : "stay in the context"} (the next cold start decides)`, "info");
 					return;
 				case "invalid":
 					ctx.ui.notify(cmd.message, "warning");

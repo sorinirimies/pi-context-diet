@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
-	DEFAULT_CONFIG, applyElision, assistantTurnsAfter, decide, describeCall, eligible, estimateTokens, formatSize, formatTokens,
-	indexCalls, isCold, lastAssistantTimestamp, measure, policyOf, resolveAgentDir, restoreIds, sanitizeConfig, stubText, statusLine,
-	type Message,
+	ARG_TOOLS, DEFAULT_CONFIG, RecoveryMeter, applyElision, argChars, assistantTurnsAfter, callSignature, decide, describeCall, elideArguments,
+	eligible, eligibleArgs, estimateTokens, formatSize, formatTokens, indexCalls, isCold, lastAssistantTimestamp, measure, policyOf, previewOf,
+	resolveAgentDir, restoreIds, restoreState, sanitizeConfig, stableStringify, statusLine, stubText, type DietConfig, type Message,
 } from "../extensions/context-diet.ts";
 import { big, convo, deepFreeze, isStub, resetIds, resultsOf, text, turn, user } from "./helpers.ts";
 import { join } from "node:path";
@@ -167,7 +167,7 @@ describe("decide", () => {
 	const long = convo(30, { endTs: NOW });
 
 	it("does nothing while the cache is warm", () => {
-		expect(decide(long, new Set(), cfg, { now: NOW + MIN, force: false })).toEqual({ ids: [], cold: false });
+		expect(decide(long, new Set(), cfg, { now: NOW + MIN, force: false })).toEqual({ ids: [], argIds: [], cold: false });
 	});
 	it("elides stale results when the cache is cold", () => {
 		const d = decide(long, new Set(), cfg, { now: NOW + 10 * MIN, force: false });
@@ -179,7 +179,7 @@ describe("decide", () => {
 		expect(decide(long, new Set(), { ...cfg, mode: "always" }, { now: NOW + MIN, force: false }).ids.length).toBe(24);
 	});
 	it("does nothing when disabled", () => {
-		expect(decide(long, new Set(), { ...cfg, enabled: false }, { now: NOW + 10 * MIN, force: true })).toEqual({ ids: [], cold: false });
+		expect(decide(long, new Set(), { ...cfg, enabled: false }, { now: NOW + 10 * MIN, force: true })).toEqual({ ids: [], argIds: [], cold: false });
 	});
 	it("does not re-pick what is already elided", () => {
 		const first = decide(long, new Set(), cfg, { now: NOW + 10 * MIN, force: false }).ids;
@@ -263,8 +263,8 @@ describe("sanitizeConfig", () => {
 		for (const junk of [undefined, null, 5, "x", [], true]) expect(sanitizeConfig(junk)).toEqual(DEFAULT_CONFIG);
 	});
 	it("keeps valid values", () => {
-		const c = sanitizeConfig({ enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false });
-		expect(c).toEqual({ enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false });
+		const all: DietConfig = { enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false, stubTailLines: 5, stubErrorLines: 2, elideArgs: false, autoProtect: false, recoveryThreshold: 0.5 };
+		expect(sanitizeConfig(all)).toEqual(all);
 	});
 	it("clamps numbers and rejects the wrong types", () => {
 		const c = sanitizeConfig({ keepTurns: 9999, minChars: 1, cacheTtlMinutes: 0, mode: "sometimes", enabled: "yes", keepErrors: 1 });
@@ -277,6 +277,15 @@ describe("sanitizeConfig", () => {
 		expect(sanitizeConfig({ keepTurns: "ten" }).keepTurns).toBe(20);
 		expect(sanitizeConfig({ keepTurns: NaN }).keepTurns).toBe(20);
 		expect(sanitizeConfig({ keepTurns: 7.6 }).keepTurns).toBe(8);
+	});
+	it("clamps the preview, args and recovery settings", () => {
+		expect(sanitizeConfig({ stubTailLines: 99, stubErrorLines: -4 })).toMatchObject({ stubTailLines: 10, stubErrorLines: 0 });
+		expect(sanitizeConfig({ stubTailLines: "x" }).stubTailLines).toBe(3);
+		expect(sanitizeConfig({ recoveryThreshold: 5 }).recoveryThreshold).toBe(1);
+		expect(sanitizeConfig({ recoveryThreshold: 0 }).recoveryThreshold).toBe(0.05);
+		expect(sanitizeConfig({ recoveryThreshold: NaN }).recoveryThreshold).toBe(0.25);
+		expect(sanitizeConfig({ recoveryThreshold: "high" }).recoveryThreshold).toBe(0.25);
+		expect(sanitizeConfig({ elideArgs: "yes", autoProtect: 1 })).toMatchObject({ elideArgs: true, autoProtect: true });
 	});
 	it("cleans neverElide: strings only, trimmed, unique, at most 50", () => {
 		expect(sanitizeConfig({ neverElide: [" read ", "read", "", 5, null, "bash"] }).neverElide).toEqual(["read", "bash"]);
@@ -293,11 +302,259 @@ describe("paths and status", () => {
 		expect(resolveAgentDir({ PI_CODING_AGENT_DIR: "", XDG_CONFIG_HOME: "" }, "/h")).toBe(join("/h", ".pi", "agent"));
 	});
 	it("statusLine reports settings and savings", () => {
-		const s = statusLine(DEFAULT_CONFIG, { requests: 24, cumulativeChars: 20_400_000, lastChars: 850_000, lastCount: 37, coldStarts: 3 });
-		expect(s).toContain("on · mode cold · keep last 20 turns · cache ttl 5 min · min 1.5 KB");
+		const s = statusLine(DEFAULT_CONFIG, { requests: 24, cumulativeChars: 20_400_000, lastChars: 850_000, lastCount: 37, lastArgCount: 0, coldStarts: 3 });
+		expect(s).toContain("on · mode cold · keep last 20 turns · cache ttl 5 min · min 1.5 KB · write/edit args elided");
 		expect(s).toContain("37 results elided (~212.5k tokens kept out of every request)");
 		expect(s).toContain("~5.10M tokens saved over 24 requests · 3 cold starts");
-		expect(statusLine({ ...DEFAULT_CONFIG, enabled: false }, { requests: 0, cumulativeChars: 0, lastChars: 0, lastCount: 0, coldStarts: 1 })).toContain("off ·");
-		expect(statusLine(DEFAULT_CONFIG, { requests: 0, cumulativeChars: 0, lastChars: 0, lastCount: 0, coldStarts: 1 })).toContain("1 cold start");
+		const none = { requests: 0, cumulativeChars: 0, lastChars: 0, lastCount: 0, lastArgCount: 0, coldStarts: 1 };
+		expect(statusLine({ ...DEFAULT_CONFIG, enabled: false }, none)).toContain("off ·");
+		expect(statusLine({ ...DEFAULT_CONFIG, elideArgs: false }, none)).toContain("write/edit args kept");
+		expect(statusLine(DEFAULT_CONFIG, none)).toContain("1 cold start");
+		expect(statusLine(DEFAULT_CONFIG, { ...none, lastCount: 3, lastArgCount: 4 })).toContain("3 results + 4 write/edit arguments elided");
+	});
+});
+
+describe("stub preview", () => {
+	const log = ["Compiling a", "Compiling b", "error[E0432]: unresolved import `x`", "  --> src/lib.rs:1:5", "warning: unused", "BUILD FAILED in 4s", "exit code 1"].join("\n");
+
+	it("keeps the last lines", () => {
+		expect(previewOf(text(log), 2, 0)).toEqual({ tail: ["BUILD FAILED in 4s", "exit code 1"], errors: [] });
+	});
+	it("keeps error lines that are not already in the tail, in order, and only the last N", () => {
+		const p = previewOf(text(log), 1, 5);
+		expect(p.tail).toEqual(["exit code 1"]);
+		expect(p.errors).toEqual(["error[E0432]: unresolved import `x`", "BUILD FAILED in 4s"]);
+		expect(previewOf(text(log), 0, 1).errors).toEqual(["BUILD FAILED in 4s"]);
+	});
+	it("does nothing when both are 0, and copes with strings, junk and empty output", () => {
+		expect(previewOf(text(log), 0, 0)).toEqual({ tail: [], errors: [] });
+		expect(previewOf("a\nb\nc", 2, 0).tail).toEqual(["b", "c"]);
+		expect(previewOf(null, 3, 3)).toEqual({ tail: [], errors: [] });
+		expect(previewOf([{ type: "image" }, { type: "text" }], 3, 3)).toEqual({ tail: [], errors: [] });
+		expect(previewOf("", 3, 3)).toEqual({ tail: [], errors: [] });
+	});
+	it("trims blank lines and clips very long lines", () => {
+		const p = previewOf("\n\n  ok  \n\n" + "x".repeat(300) + "\n", 2, 0);
+		expect(p.tail[0]).toBe("ok");
+		expect(p.tail[1]).toHaveLength(160);
+		expect(p.tail[1].endsWith("…")).toBe(true);
+	});
+	it("recognises errors, failures and exceptions (TypeError, AssertionError, ...)", () => {
+		const out = previewOf("Error: boom\nTypeError: x is not a function\nTraceback (most recent call last)\nAssertionError\nUnhandledException\ntest failed\nall good", 0, 10).errors;
+		expect(out).toEqual(["Error: boom", "TypeError: x is not a function", "Traceback (most recent call last)", "AssertionError", "UnhandledException", "test failed"]);
+	});
+	it("does not treat an all-clear summary as an error line", () => {
+		expect(previewOf("12 passed, 0 failed\n0 errors\n0 failures found\nBuild ok", 0, 10).errors).toEqual([]);
+		expect(previewOf("3 failed, 9 passed", 0, 10).errors).toEqual(["3 failed, 9 passed"]);
+	});
+	it("stubText shows the preview: errors first, then the tail", () => {
+		const out = stubText("bash", "cargo test", 5000, 120, previewOf(text(log), 2, 2));
+		expect(out.startsWith("[pi-context-diet: the output of bash cargo test (5.0 KB, 120 lines)")).toBe(true);
+		expect(out).toContain("error lines:\n  error[E0432]");
+		expect(out).toContain("last lines:\n  BUILD FAILED in 4s\n  exit code 1");
+		expect(out.indexOf("error lines:")).toBeLessThan(out.indexOf("last lines:"));
+		expect(out.endsWith("]")).toBe(true);
+		expect(stubText("x", "", 1, 1, { tail: [], errors: [] })).toBe(stubText("x", "", 1, 1));
+	});
+	it("applyElision puts the preview into the stub, deterministically, and still saves most of the output", () => {
+		const body = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n") + "\nerror: link failed\nexit 2";
+		const m = [user(), ...turn({ content: text(body) })];
+		const id = resultsOf(m)[0].toolCallId as string;
+		const a = applyElision(m, new Set([id]), { preview: { tail: 2, errors: 2 } });
+		const b = applyElision(m, new Set([id]), { preview: { tail: 2, errors: 2 } });
+		expect(JSON.stringify(a.messages)).toBe(JSON.stringify(b.messages));
+		const stub = JSON.stringify(a.messages[2].content);
+		expect(stub).toContain("error: link failed");
+		expect(stub).toContain("exit 2");
+		expect(a.savedChars).toBeGreaterThan(body.length * 0.8);
+	});
+});
+
+describe("write / edit arguments", () => {
+	const writeArgs = (n: number) => ({ path: "src/a.ts", content: big(n) });
+	const editArgs = (n: number) => ({ path: "src/a.ts", edits: [{ oldText: big(n / 2), newText: big(n / 2, "y") }, { oldText: "a", newText: "b" }] });
+
+	it("argChars counts file content only", () => {
+		expect(argChars("write", writeArgs(900))).toBe(900);
+		expect(argChars("edit", editArgs(1000))).toBe(1000 + 2);
+		expect(argChars("edit", { oldText: "abc", newText: "de" })).toBe(5); // the older single-edit shape
+		expect(argChars("write", {})).toBe(0);
+		expect(argChars("write", undefined)).toBe(0);
+		expect(argChars("edit", { edits: [null, { oldText: 5 }] })).toBe(0);
+		expect([...ARG_TOOLS].sort()).toEqual(["edit", "write"]);
+	});
+
+	it("elideArguments replaces content with a short placeholder and keeps the structure", () => {
+		const w = elideArguments("write", writeArgs(5000));
+		expect(w.path).toBe("src/a.ts");
+		expect(String(w.content)).toContain("pi-context-diet");
+		expect(String(w.content)).toContain("src/a.ts");
+		expect(String(w.content).length).toBeLessThan(200);
+		const e = elideArguments("edit", editArgs(4000)) as any;
+		expect(e.edits).toHaveLength(2);
+		expect(e.edits[0].oldText).toContain("pi-context-diet");
+		expect(e.edits[0].newText).toContain("pi-context-diet");
+		expect(elideArguments("edit", { path: "f", oldText: "abc", newText: "def" })).toMatchObject({ path: "f" });
+		expect(elideArguments("write", { path: "p" })).toEqual({ path: "p" }); // nothing to elide: same shape
+		expect(elideArguments("edit", { edits: [null, "x", { oldText: 5 }] })).toEqual({ edits: [null, "x", { oldText: 5 }] });
+		expect(elideArguments("write", { file_path: "z.ts", content: "a\nb" })).toMatchObject({ file_path: "z.ts" });
+		expect(String(elideArguments("write", { content: "x" }).content)).toContain("the file");
+	});
+
+	const policy = (over = {}) => policyOf({ ...DEFAULT_CONFIG, keepTurns: 5, minChars: 1000, ...over });
+	const session = () => {
+		const m: Message[] = [user()];
+		m.push(...turn({ tool: "write", args: writeArgs(5000), chars: 50 }));
+		m.push(...turn({ tool: "edit", args: editArgs(3000), chars: 50 }));
+		m.push(...turn({ tool: "write", args: writeArgs(300), chars: 50 })); // too small
+		m.push(...turn({ tool: "write", args: writeArgs(5000), chars: 50, isError: true })); // failed: may be retried
+		m.push(...convo(8, { endTs: NOW }).slice(1));
+		return m;
+	};
+	const callIds = (m: Message[]) => m.filter((x) => x.role === "assistant").flatMap((x) => (x.content as any[]).filter((p) => p.type === "toolCall").map((p) => p.id as string));
+
+	it("eligibleArgs: old, big, successful write/edit calls only", () => {
+		const m = session();
+		const [w, e] = callIds(m);
+		expect(eligibleArgs(m, policy(), new Set())).toEqual([w, e]);
+	});
+	it("eligibleArgs: skips young calls, protected tools and already-elided ones", () => {
+		const m = session();
+		const [w, e] = callIds(m);
+		expect(eligibleArgs(m.slice(0, 7), policy(), new Set())).toEqual([]); // nothing is old enough yet
+		expect(eligibleArgs(m, policy({ neverElide: ["write"] }), new Set())).toEqual([e]);
+		expect(eligibleArgs(m, policy(), new Set([w]))).toEqual([e]);
+	});
+	it("eligibleArgs: ignores other tools, unanswered calls and junk parts", () => {
+		const m: Message[] = [
+			user(),
+			{ role: "assistant", content: [{ type: "toolCall", id: "bashy", name: "bash", arguments: { command: big(5000) } }, { type: "toolCall", id: "noanswer", name: "write", arguments: writeArgs(5000) }, { type: "toolCall", name: "write" }, null, { type: "text", text: "hi" }] },
+			{ role: "toolResult", toolCallId: "bashy", content: text("ok") },
+			{ role: "toolResult", content: text("no id") },
+			...convo(8, { endTs: NOW }).slice(1),
+		] as Message[];
+		expect(eligibleArgs(m, policy(), new Set())).toEqual([]);
+	});
+
+	it("applyElision elides the chosen arguments, counts them, and never mutates the originals", () => {
+		const m = deepFreeze(session());
+		const [w, e] = callIds(m);
+		const r = applyElision(m, new Set(), { argIds: new Set([w, e]) });
+		expect(r.argCount).toBe(2);
+		expect(r.count).toBe(0);
+		expect(r.savedChars).toBeGreaterThan(7000);
+		const out = r.messages.filter((x) => x.role === "assistant").flatMap((x) => x.content as any[]).filter((p) => p.type === "toolCall");
+		expect(JSON.stringify(out[0].arguments)).toContain("pi-context-diet");
+		expect(out[0].id).toBe(w);
+		expect(out[2].arguments).toEqual(m.filter((x) => x.role === "assistant")[2].content![0 as never] && (m.filter((x) => x.role === "assistant")[2].content as any[])[0].arguments); // the small one is untouched
+		expect(JSON.stringify(applyElision(m, new Set(), { argIds: new Set([w, e]) }).messages)).toBe(JSON.stringify(r.messages)); // deterministic
+	});
+	it("applyElision returns the same array when no argument actually changes", () => {
+		const m = [user(), ...turn({ tool: "write", args: { path: "p" }, chars: 10 })];
+		const id = callIds(m)[0];
+		expect(applyElision(m, new Set(), { argIds: new Set([id]) }).messages).toBe(m);
+		expect(applyElision(m, new Set(), { argIds: new Set(["unknown"]) }).messages).toBe(m);
+	});
+	it("applyElision handles assistant messages without parts and non-object arguments", () => {
+		const m: Message[] = [{ role: "assistant", content: "plain" }, { role: "assistant", content: [{ type: "toolCall", id: "x", name: "write" }] }];
+		expect(applyElision(m, new Set(), { argIds: new Set(["x"]) }).messages).toBe(m);
+	});
+	it("decide picks up arguments at a cold start, and only when elideArgs is on", () => {
+		const m = session();
+		const cfg = { ...DEFAULT_CONFIG, keepTurns: 5, minChars: 1000 };
+		expect(decide(m, new Set(), cfg, { now: NOW + 10 * MIN, force: false }).argIds).toHaveLength(2);
+		expect(decide(m, new Set(), { ...cfg, elideArgs: false }, { now: NOW + 10 * MIN, force: false }).argIds).toEqual([]);
+		expect(decide(m, new Set(), cfg, { now: NOW + 10 * MIN, force: false }, { protectedTools: ["write"] }).argIds).toHaveLength(1);
+		const done = new Set(decide(m, new Set(), cfg, { now: NOW + 10 * MIN, force: false }).argIds);
+		expect(decide(m, new Set(), cfg, { now: NOW + 10 * MIN, force: false }, { elidedArgs: done }).argIds).toEqual([]);
+	});
+});
+
+describe("call signatures", () => {
+	it("stableStringify sorts keys and handles every JSON type", () => {
+		expect(stableStringify({ b: 1, a: { d: [1, { z: 1, y: 2 }], c: null } })).toBe('{"a":{"c":null,"d":[1,{"y":2,"z":1}]},"b":1}');
+		expect(stableStringify("x")).toBe('"x"');
+		expect(stableStringify(undefined)).toBe("null");
+		expect(stableStringify([])).toBe("[]");
+	});
+	it("callSignature is the same for the same call whatever the key order", () => {
+		expect(callSignature("read", { path: "a", limit: 5 })).toBe(callSignature("read", { limit: 5, path: "a" }));
+		expect(callSignature("read", { path: "a" })).not.toBe(callSignature("read", { path: "b" }));
+		expect(callSignature("read", { path: "a" })).not.toBe(callSignature("bash", { path: "a" }));
+		expect(callSignature("x", undefined)).toBe("x:{}");
+	});
+});
+
+describe("RecoveryMeter", () => {
+	const info = (id: string, tool = "bash", cmd = id, chars = 4000) => ({ id, tool, sig: callSignature(tool, { command: cmd }), chars });
+
+	it("counts a re-fetch once, with its cost, and attributes it to the tool", () => {
+		const m = new RecoveryMeter();
+		m.track([info("a"), info("b", "read")]);
+		expect(m.elided()).toBe(2);
+		const hit = m.onCall("bash", { command: "a" });
+		expect(hit?.id).toBe("a");
+		expect(m.recovered).toBe(1);
+		expect(m.recoveredChars).toBe(4000);
+		expect(m.perTool.get("bash")).toEqual({ elided: 1, recovered: 1 });
+		expect(m.perTool.get("read")).toEqual({ elided: 1, recovered: 0 });
+		expect(m.onCall("bash", { command: "a" })).toBeUndefined(); // already counted
+	});
+	it("ignores calls that match nothing that was elided", () => {
+		const m = new RecoveryMeter();
+		m.track([info("a")]);
+		expect(m.onCall("bash", { command: "other" })).toBeUndefined();
+		expect(m.onCall("read", { command: "a" })).toBeUndefined();
+		expect(m.recovered).toBe(0);
+	});
+	it("track is idempotent", () => {
+		const m = new RecoveryMeter();
+		m.track([info("a")]);
+		m.track([info("a")]);
+		expect(m.elided()).toBe(1);
+		expect(m.perTool.get("bash")!.elided).toBe(1);
+	});
+	it("one re-fetch answers every elided copy of the same output", () => {
+		const m = new RecoveryMeter();
+		m.track([info("a1", "bash", "ls"), info("a2", "bash", "ls")]);
+		expect(m.onCall("bash", { command: "ls" })).toBeDefined();
+		expect(m.recovered).toBe(1);
+		expect(m.onCall("bash", { command: "ls" })).toBeUndefined();
+	});
+	it("shouldProtect needs enough samples and a high enough share", () => {
+		const m = new RecoveryMeter();
+		m.track(Array.from({ length: 8 }, (_, i) => info(`i${i}`, "bash", `c${i}`)));
+		expect(m.shouldProtect("bash", 0.25)).toBe(false); // nothing re-fetched
+		for (const c of ["c0", "c1"]) m.onCall("bash", { command: c });
+		expect(m.shouldProtect("bash", 0.25)).toBe(false); // 2/8 = 25%: not above the threshold
+		m.onCall("bash", { command: "c2" });
+		expect(m.shouldProtect("bash", 0.25)).toBe(true); // 3/8
+		expect(m.shouldProtect("bash", 0.5)).toBe(false);
+		expect(m.shouldProtect("bash", 0.1, 20)).toBe(false); // too few samples
+		expect(m.shouldProtect("read", 0.1)).toBe(false); // unknown tool
+	});
+});
+
+describe("restoreState", () => {
+	it("rebuilds results, arguments and protected tools from custom entries", () => {
+		const s = restoreState([
+			{ type: "custom", customType: "context-diet", data: { ids: ["r1", "r2", 5], argIds: ["a1", null] } },
+			{ type: "custom", customType: "context-diet", data: { ids: ["r3"] } },
+			{ type: "custom", customType: "context-diet-protect", data: { tool: "bash" } },
+			{ type: "custom", customType: "context-diet-protect", data: { tool: 7 } },
+			{ type: "custom", customType: "context-diet", data: { ids: "no", argIds: "no" } },
+			{ type: "message" },
+			null,
+		]);
+		expect([...s.ids].sort()).toEqual(["r1", "r2", "r3"]);
+		expect([...s.argIds]).toEqual(["a1"]);
+		expect([...s.protectedTools]).toEqual(["bash"]);
+	});
+	it("statusLine includes the recovery summary", () => {
+		const base = { requests: 4, cumulativeChars: 400_000, lastChars: 100_000, lastCount: 5, lastArgCount: 0, coldStarts: 1 };
+		const line = statusLine(DEFAULT_CONFIG, base, { recovered: 2, elided: 40, recoveredChars: 36_000, protectedTools: ["bash", "read"] });
+		expect(line).toContain("recovery: 2 of 40 elided results re-fetched (5%, ~9.0k tokens to re-fetch, once)");
+		expect(line).toContain("protected: bash, read");
+		expect(statusLine(DEFAULT_CONFIG, base, { recovered: 0, elided: 0, recoveredChars: 0, protectedTools: [] })).toContain("0 of 0 elided results re-fetched (0%");
 	});
 });

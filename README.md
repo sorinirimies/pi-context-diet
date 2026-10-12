@@ -5,7 +5,7 @@
 [![CI](https://github.com/sorinirimies/pi-context-diet/actions/workflows/ci.yml/badge.svg)](https://github.com/sorinirimies/pi-context-diet/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A [pi](https://github.com/earendil-works/pi-coding-agent) extension that cuts token spend on long sessions by **eliding stale tool results from the context, but only when the prompt cache has already gone cold**, so it costs nothing and never fights the cache.
+A [pi](https://github.com/earendil-works/pi-coding-agent) extension that cuts token spend on long sessions by **eliding stale tool results (and stale `write`/`edit` content) from the context, but only when the prompt cache has already gone cold**, so it costs nothing and never fights the cache.
 
 Zero prompt tokens: it rewrites the messages of a request, never the system prompt, and the transcript on disk is untouched.
 
@@ -26,6 +26,12 @@ Dropping old results saves a lot, but editing old history normally **invalidates
 2. At that moment it picks the tool results that are old (more than `keepTurns` assistant turns back), big (at least `minChars`), plain text, and not errors, and replaces each with a one-line stub that says what it was and how to get it back.
 3. That set is remembered (in the session) and applied **unchanged on every later request**, so the prompt prefix stays byte-stable and cacheable until the next cold start.
 
+Three things keep it safe:
+
+- **Stubs keep a preview.** Each stub says what was elided and how big it was, and keeps the **last lines** and any **error lines** of the output, so an exit status or a failure survives.
+- **A recovery meter checks it didn't hurt.** When the agent re-issues an elided call (the identical tool and arguments) it is counted as a *re-fetch*, with its real cost. `/context-diet` shows `recovery: 3 of 40 elided results re-fetched (8%, ~9k tokens to re-fetch, once)`. If one tool's results keep being needed (more than 25% re-fetched, with at least 5 elided), that tool is **protected for the rest of the session** and you are told.
+- **Stale `write` / `edit` arguments are elided too.** Once a file has been written, the file on disk is the source of truth, so the old content in the tool call is dead weight. Failed calls are kept (they may be retried).
+
 On the 221 sessions above, doing exactly this at the ~1,050 cold starts would have removed about 2.2 billion cache-read tokens, an estimated **~11% of total cost**, with no cache penalty. (An estimate: 4 characters per token and Anthropic-style cache prices from the model's own cost config.)
 
 ## Install
@@ -44,6 +50,14 @@ Recorded from a real pi with only this plugin loaded; a small scripted mock mode
 
 ![Survey five files, force a pass, and the model reports 3 of 5 results as elided stubs](examples/vhs/generated/overview.gif)
 
+**Stubs keep a preview, and the recovery meter tells you if eliding hurt:** the stub keeps the last lines. When the agent re-reads an elided file the footer shows `↺1` and `/context-diet` reports the cost:
+
+![A stub with its preview, then a re-read counted as a recovery](examples/vhs/generated/recovery.gif)
+
+**Stale `write` content is elided too** (the file on disk already holds it): the 60-line write from earlier arrives as a one-line placeholder:
+
+![An old write call whose content is elided from the context](examples/vhs/generated/arguments.gif)
+
 **Commands:** settings and savings, `keep`, `ttl`, `mode`, `on` / `off`:
 
 ![/context-diet status, keep, ttl, mode, off and on](examples/vhs/generated/commands.gif)
@@ -56,12 +70,13 @@ Recorded from a real pi with only this plugin loaded; a small scripted mock mode
 
 | Command | What it does |
 |---|---|
-| `/context-diet` | Settings and savings (results elided, tokens kept out of every request, tokens saved so far, cold starts) |
+| `/context-diet` | Settings, savings (results elided, tokens kept out of every request, tokens saved so far, cold starts) and the recovery meter |
 | `/context-diet on` · `/context-diet off` | Turn it on or off (remembered). Off means the next request sends the full history again |
 | `/context-diet now` | Elide stale results on the next request, even if the cache is warm (accepts one cache rewrite) |
 | `/context-diet keep <turns>` | Always keep the results of the last N assistant turns (default 20) |
 | `/context-diet ttl <minutes>` | Prompt-cache lifetime: 5 for Anthropic's default, 60 for extended retention |
 | `/context-diet mode <cold\|always>` | `cold` (default, free) or `always` (for providers without prompt caching) |
+| `/context-diet args <on\|off>` | Also elide stale `write` / `edit` arguments (default on) |
 
 Tab-completion works for all of these. Unknown input prints usage instead of failing.
 
@@ -78,13 +93,21 @@ Tab-completion works for all of these. Unknown input prints usage instead of fai
   "cacheTtlMinutes": 5,
   "keepErrors": true,
   "neverElide": [],
-  "showStatus": true
+  "showStatus": true,
+  "stubTailLines": 3,
+  "stubErrorLines": 3,
+  "elideArgs": true,
+  "autoProtect": true,
+  "recoveryThreshold": 0.25
 }
 ```
 
 - `minChars`: results smaller than this are not worth a stub.
 - `keepErrors`: error results are kept (they are short and usually matter).
 - `neverElide`: tool names whose results are never elided, e.g. `["read"]`.
+- `stubTailLines` / `stubErrorLines`: how many last lines and error lines a stub keeps (0 for a bare stub).
+- `elideArgs`: also elide stale `write` / `edit` arguments.
+- `autoProtect` / `recoveryThreshold`: protect a tool for the session when more than this share of its elided results was re-fetched.
 - Images and any result that is not plain text are never touched.
 
 ## What it will and will not do

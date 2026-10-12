@@ -17,7 +17,7 @@ const CMD = "context-diet";
 
 describe("VHS tapes", () => {
 	it("there is a tape for every feature we show off", () => {
-		for (const name of ["overview", "commands", "completion"]) expect(tapes, name).toContain(`${name}.tape`);
+		for (const name of ["overview", "commands", "completion", "recovery", "arguments"]) expect(tapes, name).toContain(`${name}.tape`);
 	});
 
 	for (const tape of tapes) {
@@ -57,7 +57,7 @@ describe("VHS tapes", () => {
 			const lines = text.split("\n");
 			lines.forEach((line, i) => {
 				const m = line.match(/^Type "([^/"][^"]*)"$/);
-				if (!m || !/^(Survey|What)/.test(m[1])) return;
+				if (!m || !/^(Survey|What|Write|Read|Show)/.test(m[1])) return;
 				const tail = lines.slice(i + 1, i + 12).join("\n");
 				expect(tail, `"${m[1]}" in ${tape}`).toMatch(/Wait\+Screen@40s \/.+\//);
 			});
@@ -148,7 +148,7 @@ describe.skipIf(!posix)("synthetic fixture (examples/vhs/fixture.sh)", () => {
 		expect(models.providers.demo.baseUrl).toBe(`http://127.0.0.1:${PORT}/v1`);
 		expect(models.providers.demo.models[0].id).toBe("demo-model");
 		expect(JSON.parse(read(join(agent, "settings.json")))).toMatchObject({ defaultProvider: "demo", defaultModel: "demo-model" });
-		expect(read(join(VHS, "pi-demo.sh"))).toContain("--tools read");
+		expect(read(join(VHS, "pi-demo.sh"))).toContain("--tools read,write");
 
 		const leaks: string[] = [];
 		const secrets = [homedir(), userInfo().username].filter((s) => s.length > 3);
@@ -231,6 +231,41 @@ describe("scripted mock model (examples/vhs/mock-llm.ts)", () => {
 		expect(r.choices[0].finish_reason).toBe("stop");
 		expect(said(r)).toContain("5 tool results, 3 of them elided stubs");
 		expect(said(await ask([user("summarise")]))).toContain("0 tool results, 0 of them elided stubs");
+	});
+
+	it("write: writes a 60-line src/summary.ts, then confirms", async () => {
+		const first = call(await ask([user("Write the summary file")]));
+		expect(first.name).toBe("write");
+		expect(first.args.path).toBe("src/summary.ts");
+		expect(first.args.content.split("\n").filter(Boolean)).toHaveLength(60);
+		expect(first.args.content.length).toBeGreaterThan(1500); // big enough to be worth eliding
+		const writeCall = { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write", arguments: JSON.stringify(first.args) } }] };
+		expect(said(await ask([user("Write the summary file"), writeCall, result("Wrote 60 lines")]))).toBe("Wrote src/summary.ts (60 lines).");
+	});
+
+	it("again: re-reads the FIRST file (an identical call to the earlier one), then reports the context", async () => {
+		expect(call(await ask([user("Read the first file again")]))).toEqual({ name: "read", args: { path: FILES[0] } });
+		const after = said(await ask([user("Read the first file again"), readCall(FILES[0]), result("x".repeat(2000))]));
+		expect(after).toContain("Read it again.");
+		expect(after).toContain("1 tool results, 0 of them elided stubs");
+	});
+
+	it("stub: shows the first stub it received, preview included, or says it got none", async () => {
+		const preview = `${STUB}\nlast lines:\n  }\n  return Math.round(sum * 100) / 100;`;
+		const r = said(await ask([...survey(2, 1).slice(0, 1), readCall(FILES[0]), result(preview), user("Show me one stub")]));
+		expect(r).toContain("The first stub I received:");
+		expect(r).toContain("last lines:");
+		expect(r).toContain("return Math.round");
+		expect(said(await ask([user("Show me one stub")]))).toBe("I have not received any stubs.");
+	});
+
+	it("the report counts tool calls whose arguments arrived elided", async () => {
+		const elidedWrite = { role: "assistant", content: null, tool_calls: [{ id: "w", type: "function", function: { name: "write", arguments: JSON.stringify({ path: "a", content: "[pi-context-diet: 60 lines elided]" }) } }] };
+		const one = said(await ask([user("x"), elidedWrite, result("ok"), user("What do you still know?")]));
+		expect(one).toContain("1 tool call with elided arguments.");
+		const two = said(await ask([user("x"), elidedWrite, result("ok"), elidedWrite, result("ok"), user("What do you still know?")]));
+		expect(two).toContain("2 tool calls with elided arguments.");
+		expect(said(await ask([...survey(2), user("What do you still know?")]))).not.toContain("elided arguments");
 	});
 
 	it("tool results may arrive as content parts, and anything else gets a polite scripted line", async () => {
