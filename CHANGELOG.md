@@ -3,6 +3,12 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.3.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.1) — 2026-10-12
+
+
+### 🐛 Fixes
+
+- The footer was blank until something was elided; always show the plugin is on, what the next pause would drop, and whether compaction is on ([`acaa27b`](https://github.com/sorinirimies/pi-context-diet/commit/acaa27bbf6ea60d529cc52bfd8190b55e34d5cea))
 ## [0.3.0](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.0) — 2026-10-12
 
 
