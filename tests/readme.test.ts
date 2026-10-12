@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+
+// Windows checkouts may convert to CRLF: compare on LF only.
+const readme = () => readFileSync(join(import.meta.dir, "..", "README.md"), "utf8").replace(/\r\n/g, "\n");
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import contextDiet, { parseCommand } from "../extensions/context-diet.ts";
@@ -8,7 +11,7 @@ const PLACEHOLDERS: Record<string, string[]> = { "<turns>": ["5"], "<minutes>": 
 
 /** `/context-diet ...` spans from the README, with `a|b` alternatives and <placeholders> expanded. */
 function readmeCommands(): string[] {
-	const md = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8");
+	const md = readme();
 	const spans = [...md.matchAll(/`(\/context-diet[^`]*)`/g)].map((m) => m[1].replace(/\\\|/g, "|"));
 	const out = new Set<string>();
 	for (const span of spans) {
@@ -64,7 +67,7 @@ describe("every command documented in the README works", () => {
 	});
 
 	it("the documented defaults match the code", () => {
-		const md = readFileSync(join(import.meta.dir, "..", "README.md"), "utf8");
+		const md = readme();
 		const json = JSON.parse(md.match(/```json\n([\s\S]*?)```/)![1]);
 		expect(json).toEqual({ enabled: true, mode: "cold", keepTurns: 20, minChars: 1500, cacheTtlMinutes: 5, keepErrors: true, neverElide: [], showStatus: true });
 	});
