@@ -131,7 +131,7 @@ bun install
 just check          # typecheck + tests + pack check + nushell tests (what CI runs)
 just test           # bun test only (with coverage)
 just coverage       # tests + a coverage table
-just push-all       # push main to every remote (origin + starscream); see `just --list` for pull-all, push-tags-all, ...
+just push-all       # push main to every configured remote (origin + the Gitea instances); `just --list` has pull-all, push-tags-all, release-all, the *-force and sync-gitea-* variants
 ```
 
 **Coverage:** every `bun test` collects coverage (`bunfig.toml`) and **fails below 95% lines / 95% functions**. CI shows the table on the run page and uploads `lcov.info`.
@@ -162,7 +162,7 @@ just demo             # try it yourself in a real pi: ask it to "Survey the proj
 
 So library updates need no human: they are merged once CI passes, built, versioned and published as a patch. A downgrade, a failing check, or a major update stops the chain and waits for review.
 
-Manual release: `just bump patch` (or `minor` / `major` / `X.Y.Z`), then `just release-push`.
+Manual release: `just release patch` (or `minor` / `major` / `X.Y.Z`) bumps, tags and pushes to GitHub; `just release-all patch` pushes to every configured remote; `just push-release-all` pushes an existing bump.
 
 **Secrets** (repo settings): `NPM_TOKEN` is an npm *granular access token* with publish rights and "bypass 2FA" (required for CI publishing). Optional: `GH_PAT` (lets a tag push trigger the release itself), `GITEA_TOKEN` (Gitea).
 
