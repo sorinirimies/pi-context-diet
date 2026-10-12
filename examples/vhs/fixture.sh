@@ -54,7 +54,9 @@ with open(os.path.join(agent, "models.json"), "w") as f:
                "maxTokens": 8192, "cost": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75}}]}}}, f, indent=2)
 with open(os.path.join(agent, "settings.json"), "w") as f:
     json.dump({"defaultProvider": "demo", "defaultModel": "demo-model", "theme": "dark",
-               "defaultThinkingLevel": "off", "lastChangelogVersion": "9.9.9", "quietStartup": "header"}, f, indent=2)
+               "defaultThinkingLevel": "off", "lastChangelogVersion": "9.9.9", "quietStartup": "header",
+               # tiny thresholds so a five-file demo is big enough to compact
+               "compaction": {"enabled": True, "reserveTokens": 2000, "keepRecentTokens": 1500}}, f, indent=2)
 # keep only the last 2 turns' results so a five-file survey shows the effect without a long session
 with open(os.path.join(agent, "context-diet.json"), "w") as f:
     json.dump({"enabled": True, "mode": "cold", "keepTurns": 2, "minChars": 1500, "cacheTtlMinutes": 5}, f, indent=2)

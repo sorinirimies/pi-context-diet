@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import {
-	ARG_TOOLS, DEFAULT_CONFIG, RecoveryMeter, applyElision, argChars, assistantTurnsAfter, callSignature, decide, describeCall, elideArguments,
+	ARG_TOOLS, COMPACT_COOLDOWN_TURNS, COMPACT_INSTRUCTIONS, Calibrator, DEFAULT_CHARS_PER_TOKEN, DEFAULT_CONFIG, RecoveryMeter, charsOfMessages, describeCandidates, describeElided, shouldCompact, shouldStopWarming, showLines, staleTokens, applyElision, argChars, assistantTurnsAfter, callSignature, decide, describeCall, elideArguments,
 	eligible, eligibleArgs, estimateTokens, formatSize, formatTokens, indexCalls, isCold, lastAssistantTimestamp, measure, policyOf, previewOf,
 	resolveAgentDir, restoreIds, restoreState, sanitizeConfig, stableStringify, statusLine, stubText, type DietConfig, type Message,
 } from "../extensions/context-diet.ts";
@@ -77,7 +77,9 @@ describe("formatting", () => {
 		expect(formatTokens(212_000)).toBe("212.0k");
 		expect(formatTokens(5_100_000)).toBe("5.10M");
 		expect(formatTokens(3_300_000_000)).toBe("3.30B");
-		expect(estimateTokens(4000)).toBe(1000);
+		expect(estimateTokens(4000)).toBe(1333); // 3 chars per token until calibrated
+		expect(estimateTokens(4000, 4)).toBe(1000);
+		expect(DEFAULT_CHARS_PER_TOKEN).toBe(3);
 	});
 	it("stubText is deterministic and says what was elided", () => {
 		const a = stubText("bash", "cargo test", 12_345, 240);
@@ -263,7 +265,7 @@ describe("sanitizeConfig", () => {
 		for (const junk of [undefined, null, 5, "x", [], true]) expect(sanitizeConfig(junk)).toEqual(DEFAULT_CONFIG);
 	});
 	it("keeps valid values", () => {
-		const all: DietConfig = { enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false, stubTailLines: 5, stubErrorLines: 2, elideArgs: false, autoProtect: false, recoveryThreshold: 0.5 };
+		const all: DietConfig = { enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false, stubTailLines: 5, stubErrorLines: 2, elideArgs: false, autoProtect: false, recoveryThreshold: 0.5, warmArbitration: false, expectedTurns: 12, stopWarmingShare: 0.4, compact: true, compactAboveTokens: 90_000 };
 		expect(sanitizeConfig(all)).toEqual(all);
 	});
 	it("clamps numbers and rejects the wrong types", () => {
@@ -304,8 +306,8 @@ describe("paths and status", () => {
 	it("statusLine reports settings and savings", () => {
 		const s = statusLine(DEFAULT_CONFIG, { requests: 24, cumulativeChars: 20_400_000, lastChars: 850_000, lastCount: 37, lastArgCount: 0, coldStarts: 3 });
 		expect(s).toContain("on · mode cold · keep last 20 turns · cache ttl 5 min · min 1.5 KB · write/edit args elided");
-		expect(s).toContain("37 results elided (~212.5k tokens kept out of every request)");
-		expect(s).toContain("~5.10M tokens saved over 24 requests · 3 cold starts");
+		expect(s).toContain("37 results elided (~283.3k tokens kept out of every request)");
+		expect(s).toContain("~6.80M tokens saved over 24 requests · 3 cold starts");
 		const none = { requests: 0, cumulativeChars: 0, lastChars: 0, lastCount: 0, lastArgCount: 0, coldStarts: 1 };
 		expect(statusLine({ ...DEFAULT_CONFIG, enabled: false }, none)).toContain("off ·");
 		expect(statusLine({ ...DEFAULT_CONFIG, elideArgs: false }, none)).toContain("write/edit args kept");
@@ -553,8 +555,173 @@ describe("restoreState", () => {
 	it("statusLine includes the recovery summary", () => {
 		const base = { requests: 4, cumulativeChars: 400_000, lastChars: 100_000, lastCount: 5, lastArgCount: 0, coldStarts: 1 };
 		const line = statusLine(DEFAULT_CONFIG, base, { recovered: 2, elided: 40, recoveredChars: 36_000, protectedTools: ["bash", "read"] });
-		expect(line).toContain("recovery: 2 of 40 elided results re-fetched (5%, ~9.0k tokens to re-fetch, once)");
+		expect(line).toContain("recovery: 2 of 40 elided results re-fetched (5%, ~12.0k tokens to re-fetch, once)");
 		expect(line).toContain("protected: bash, read");
 		expect(statusLine(DEFAULT_CONFIG, base, { recovered: 0, elided: 0, recoveredChars: 0, protectedTools: [] })).toContain("0 of 0 elided results re-fetched (0%");
+	});
+});
+
+describe("config: warming and compaction settings", () => {
+	it("clamps them and falls back to defaults", () => {
+		expect(sanitizeConfig({ expectedTurns: 9999, stopWarmingShare: 5, compactAboveTokens: 1 })).toMatchObject({ expectedTurns: 500, stopWarmingShare: 0.9, compactAboveTokens: 20_000 });
+		expect(sanitizeConfig({ expectedTurns: 0, stopWarmingShare: 0, compactAboveTokens: 9e9 })).toMatchObject({ expectedTurns: 1, stopWarmingShare: 0.05, compactAboveTokens: 2_000_000 });
+		expect(sanitizeConfig({ stopWarmingShare: NaN, expectedTurns: "x", compact: "yes", warmArbitration: 1 })).toMatchObject({ stopWarmingShare: 0.2, expectedTurns: 30, compact: false, warmArbitration: true });
+		expect(DEFAULT_CONFIG).toMatchObject({ warmArbitration: true, compact: false, compactAboveTokens: 150_000 });
+	});
+});
+
+describe("charsOfMessages and Calibrator", () => {
+	it("counts the characters of message content", () => {
+		expect(charsOfMessages([{ role: "user", content: "abcd" }, { role: "user", content: [{ type: "text", text: "xy" }] }, { role: "x" }, { role: "y", content: null }])).toBe(4 + JSON.stringify([{ type: "text", text: "xy" }]).length);
+		expect(charsOfMessages([])).toBe(0);
+	});
+	it("uses the default until it has 6 samples", () => {
+		const c = new Calibrator();
+		for (let i = 1; i <= 5; i++) c.add(i * 1000, 20_000 + i * 400);
+		expect(c.samples()).toBe(5);
+		expect(c.charsPerToken()).toBe(DEFAULT_CHARS_PER_TOKEN);
+	});
+	it("recovers the real ratio, ignoring the fixed system prompt (the intercept), and says it measured it", () => {
+		const c = new Calibrator();
+		expect(c.isMeasured()).toBe(false);
+		for (let i = 1; i <= 12; i++) c.add(i * 10_000, 20_000 + (i * 10_000) / 2.5);
+		expect(c.charsPerToken()).toBeCloseTo(2.5, 5);
+		expect(c.isMeasured()).toBe(true);
+	});
+	it("clamps to 1.5..8 and ignores junk", () => {
+		const lo = new Calibrator();
+		for (let i = 1; i <= 8; i++) lo.add(i * 1000, i * 1000 * 5);
+		expect(lo.charsPerToken()).toBe(1.5);
+		const hi = new Calibrator();
+		for (let i = 1; i <= 8; i++) hi.add(i * 100_000, 20_000 + i * 1000);
+		expect(hi.charsPerToken()).toBe(8);
+		const c = new Calibrator();
+		c.add(0, 100);
+		c.add(100, 0);
+		c.add(-5, 5);
+		expect(c.samples()).toBe(0);
+	});
+	it("falls back when there is no variation or no positive slope", () => {
+		const flat = new Calibrator();
+		for (let i = 0; i < 8; i++) flat.add(5000, 25_000 + i);
+		expect(flat.charsPerToken()).toBe(DEFAULT_CHARS_PER_TOKEN);
+		expect(flat.isMeasured()).toBe(false);
+		const down = new Calibrator();
+		for (let i = 1; i <= 8; i++) down.add(i * 1000, 50_000 - i * 1000);
+		expect(down.charsPerToken()).toBe(DEFAULT_CHARS_PER_TOKEN);
+		const constant = new Calibrator(); // tokens never change with size (a provider that reports a fixed number)
+		for (let i = 1; i <= 8; i++) constant.add(i * 1000, 5200);
+		expect(constant.isMeasured()).toBe(false);
+	});
+	it("keeps a rolling window of the latest 200 samples", () => {
+		const c = new Calibrator();
+		for (let i = 1; i <= 250; i++) c.add(i * 100, i * 40);
+		expect(c.samples()).toBe(200);
+	});
+});
+
+describe("show", () => {
+	const policy = policyOf({ ...DEFAULT_CONFIG, keepTurns: 5, minChars: 1000 });
+	const session = (): Message[] => [
+		user(),
+		...turn({ tool: "read", args: { path: "src/big.ts" }, chars: 9000 }),
+		...turn({ tool: "bash", args: { command: "cargo test" }, chars: 3000 }),
+		...turn({ tool: "write", args: { path: "a.ts", content: big(4000) }, chars: 50 }),
+		...convo(6, { endTs: NOW }).slice(1),
+	];
+	const ids = (m: Message[]) => resultsOf(m).map((r) => r.toolCallId as string);
+
+	it("describeElided lists results and write/edit arguments, biggest first, measured from the originals", () => {
+		const m = session();
+		const calls = m.filter((x) => x.role === "assistant").flatMap((x) => (x.content as any[]).filter((p) => p.type === "toolCall"));
+		const shown = describeElided(m, new Set(ids(m).slice(0, 2)), new Set([calls[2].id]));
+		expect(shown.map((x) => `${x.kind}:${x.tool}`)).toEqual(["result:read", "args:write", "result:bash"]);
+		expect(shown[0]).toMatchObject({ label: "src/big.ts", chars: 9000 });
+		expect(shown[2].label).toBe("cargo test");
+	});
+	it("describeElided copes with results whose call is gone", () => {
+		const [, res] = turn({ tool: "grep", chars: 2000 });
+		expect(describeElided([res], new Set([res.toolCallId as string]), new Set())).toEqual([{ kind: "result", tool: "grep", label: "", chars: 2000 }]);
+		const nameless = { ...res }; delete nameless.toolName;
+		expect(describeElided([nameless], new Set([res.toolCallId as string]), new Set())[0].tool).toBe("tool");
+		expect(describeElided([null as any, { role: "assistant", content: [{ type: "toolCall", id: 5 }, null, { type: "text" }] }], new Set(), new Set())).toEqual([]);
+	});
+	it("describeCandidates lists what the next cold start would take", () => {
+		const m = session();
+		const next = describeCandidates(m, policy, new Set(), new Set(), true);
+		expect(next.map((x) => `${x.kind}:${x.tool}`).sort()).toEqual(["args:write", "result:bash", "result:read"]);
+		expect(describeCandidates(m, policy, new Set(ids(m)), new Set(), false)).toEqual([]);
+	});
+	it("showLines formats a titled, limited list with a token estimate", () => {
+		const items = Array.from({ length: 4 }, (_, i) => ({ kind: (i === 0 ? "args" : "result") as "args" | "result", tool: "bash", label: `cmd ${i}`, chars: 3000 }));
+		const lines = showLines("elided now", items, 2, 3);
+		expect(lines[0]).toBe("elided now: 4 (~4.0k tokens)");
+		expect(lines[1]).toBe("  args bash cmd 0  3.0 KB");
+		expect(lines[2]).toBe("  bash cmd 1  3.0 KB");
+		expect(lines[3]).toBe("  … and 2 more");
+		expect(showLines("x", [], 5, 3)).toEqual(["x: none"]);
+		expect(showLines("y", [{ kind: "result", tool: "read", label: "", chars: 100 }], 5, 3)[1]).toBe("  read  100 B");
+	});
+	it("staleTokens estimates the tokens a cold start would drop", () => {
+		const m = session();
+		const t = staleTokens(m, policy, new Set(), new Set(), true, 3);
+		expect(t).toBe(Math.round((9000 + 3000 + 4000) / 3));
+		expect(staleTokens(m, policy, new Set(), new Set(), false, 3)).toBe(Math.round((9000 + 3000) / 3));
+		expect(staleTokens(m, policy, new Set(ids(m)), new Set(), true, 3)).toBe(Math.round(4000 / 3));
+	});
+});
+
+describe("shouldStopWarming", () => {
+	const base = { action: "warm" as const, warmCost: 0.1, missCost: 1.2, continuationProbability: 0.8, staleTokens: 100_000, contextTokens: 300_000, prices: { cacheRead: 0.3, cacheWrite: 3.75 }, expectedTurns: 30, shareFallback: 0.2 };
+
+	it("stops warming when dropping the stale output is worth more than the avoided rewrite", () => {
+		// 0.1 + 0.8 * 100k * (0.3e-6*30 + 3.75e-6) = 0.1 + 0.8*1.275 = 1.12  >  0.8 * 1.2 = 0.96
+		expect(shouldStopWarming(base)).toBe(true);
+	});
+	it("keeps warming when little is stale", () => {
+		expect(shouldStopWarming({ ...base, staleTokens: 10_000 })).toBe(false);
+		expect(shouldStopWarming({ ...base, staleTokens: 0 })).toBe(false);
+	});
+	it("a sure return makes warming worth more; a likely no-show makes stopping free", () => {
+		expect(shouldStopWarming({ ...base, staleTokens: 60_000, continuationProbability: 1 })).toBe(false);
+		expect(shouldStopWarming({ ...base, staleTokens: 60_000, continuationProbability: 0.05 })).toBe(true);
+		expect(shouldStopWarming({ ...base, staleTokens: 1, continuationProbability: 0 })).toBe(true); // nothing to lose, the refresh is saved
+		expect(shouldStopWarming({ ...base, continuationProbability: 7 })).toBe(shouldStopWarming({ ...base, continuationProbability: 1 }));
+	});
+	it("more expected turns make eliding worth more", () => {
+		const mid = { ...base, staleTokens: 60_000, continuationProbability: 1 };
+		expect(shouldStopWarming({ ...mid, expectedTurns: 5 })).toBe(false);
+		expect(shouldStopWarming({ ...mid, expectedTurns: 500 })).toBe(true);
+	});
+	it("never turns pi's stop into a warm", () => {
+		expect(shouldStopWarming({ ...base, action: "stop" })).toBe(false);
+	});
+	it("without prices or sane numbers it falls back to the stale share of the context", () => {
+		const noPrices = { ...base, prices: undefined };
+		expect(shouldStopWarming({ ...noPrices, staleTokens: 60_000 })).toBe(true); // 20%
+		expect(shouldStopWarming({ ...noPrices, staleTokens: 59_000 })).toBe(false);
+		expect(shouldStopWarming({ ...noPrices, contextTokens: null })).toBe(false);
+		expect(shouldStopWarming({ ...base, missCost: 0, staleTokens: 70_000 })).toBe(true);
+		expect(shouldStopWarming({ ...base, warmCost: NaN, staleTokens: 10_000 })).toBe(false);
+		expect(shouldStopWarming({ ...base, prices: { cacheRead: 0, cacheWrite: 3.75 }, staleTokens: 10_000 })).toBe(false);
+		expect(shouldStopWarming({ ...base, continuationProbability: NaN, staleTokens: 70_000 })).toBe(true);
+	});
+});
+
+describe("shouldCompact", () => {
+	const ok = { enabled: true, compact: true, tokens: 200_000, threshold: 150_000, turnsSinceCompaction: COMPACT_COOLDOWN_TURNS, idle: true, pending: false, inFlight: false };
+	it("compacts an idle, big session when the feature is on", () => {
+		expect(shouldCompact(ok)).toBe(true);
+		expect(shouldCompact({ ...ok, tokens: 150_000 })).toBe(true);
+	});
+	it("never when off, disabled, small, unknown, busy, queued, already running, or just compacted", () => {
+		for (const bad of [{ compact: false }, { enabled: false }, { tokens: 149_999 }, { tokens: null }, { idle: false }, { pending: true }, { inFlight: true }, { turnsSinceCompaction: COMPACT_COOLDOWN_TURNS - 1 }]) {
+			expect(shouldCompact({ ...ok, ...bad }), JSON.stringify(bad)).toBe(false);
+		}
+	});
+	it("asks pi's summariser to keep what the work needs", () => {
+		expect(COMPACT_INSTRUCTIONS).toContain("file paths");
+		expect(COMPACT_INSTRUCTIONS).toContain("open tasks");
+		expect(COMPACT_INSTRUCTIONS).toContain("Drop: raw tool output");
 	});
 });

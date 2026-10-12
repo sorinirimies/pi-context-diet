@@ -32,6 +32,12 @@ describe("parseCommand", () => {
 		expect(parseCommand("ARGS  OFF")).toEqual({ kind: "args", on: false });
 		for (const bad of ["args", "args maybe"]) expect(parseCommand(bad).kind, bad).toBe("invalid");
 	});
+	it("show and compact <on|off|now>", () => {
+		expect(parseCommand("show")).toEqual({ kind: "show" });
+		for (const a of ["on", "off", "now"] as const) expect(parseCommand(`compact ${a}`)).toEqual({ kind: "compact", action: a });
+		expect(parseCommand(" COMPACT  NOW ")).toEqual({ kind: "compact", action: "now" });
+		for (const bad of ["compact", "compact maybe"]) expect(parseCommand(bad).kind, bad).toBe("invalid");
+	});
 	it("unknown words say what is valid", () => {
 		const c = parseCommand("bogus");
 		expect(c.kind).toBe("invalid");
@@ -43,7 +49,7 @@ describe("parseCommand", () => {
 describe("completions", () => {
 	it("offers every command at the top level, each with a string value and label", () => {
 		const items = completions("")!;
-		expect(items.map((i) => i.label)).toEqual(["status", "on", "off", "now", "keep", "ttl", "mode", "args"]);
+		expect(items.map((i) => i.label)).toEqual(["status", "on", "off", "now", "keep", "ttl", "mode", "args", "show", "compact"]);
 		for (const i of items) {
 			expect(typeof i.value).toBe("string");
 			expect(typeof i.label).toBe("string");
@@ -61,6 +67,13 @@ describe("completions", () => {
 		expect(completions("mode ")!.map((i) => i.value)).toEqual(["mode cold", "mode always"]);
 		expect(completions("mode a")!.map((i) => i.value)).toEqual(["mode always"]);
 		expect(completions("mode x")).toBeNull();
+	});
+	it("completes the compact argument too", () => {
+		expect(completions("compact ")!.map((i) => i.value)).toEqual(["compact on", "compact off", "compact now"]);
+		expect(completions("compact n")!.map((i) => i.value)).toEqual(["compact now"]);
+		expect(completions("compact x")).toBeNull();
+		expect(completions("sh")!.map((i) => i.value)).toEqual(["show"]);
+		expect(completions("co")!.map((i) => i.value)).toEqual(["compact "]);
 	});
 	it("completes the args argument too", () => {
 		expect(completions("args ")!.map((i) => i.value)).toEqual(["args on", "args off"]);

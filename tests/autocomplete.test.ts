@@ -9,7 +9,7 @@ import contextDiet, { parseCommand } from "../extensions/context-diet.ts";
 
 const TYPED = [
 	"", "s", "status", "o", "on", "off", "n", "now", "k", "keep", "keep ", "keep 5", "t", "ttl", "ttl ", "m", "mode", "mode ", "mode c", "mode a",
-	"mode always", "zzz", "mode zzz", "e", "enable", "d", "disable", "a", "args", "args ", "args o", "args on", "args off",
+	"mode always", "zzz", "mode zzz", "e", "enable", "d", "disable", "a", "args", "args ", "args o", "args on", "args off", "sh", "show", "co", "compact", "compact ", "compact n", "compact now", "compact off",
 ];
 
 describe("pi's real autocomplete provider × the context-diet command", () => {
@@ -56,7 +56,7 @@ describe("pi's real autocomplete provider × the context-diet command", () => {
 				const out = provider.applyCompletion([line], 0, line.length, item, s.prefix);
 				expect(out.lines[0].startsWith("/context-diet")).toBe(true);
 				const argText = out.lines[0].replace(/^\/context-diet\s*/, "");
-				const stem = /^(keep|ttl|mode|args)\s*$/.test(argText); // intentionally unfinished: needs a value
+				const stem = /^(keep|ttl|mode|args|compact)\s*$/.test(argText); // intentionally unfinished: needs a value
 				expect(parseCommand(argText).kind === "invalid" ? stem : true, `"${argText}"`).toBe(true);
 				applied++;
 			}

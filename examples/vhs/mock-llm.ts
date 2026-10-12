@@ -11,6 +11,7 @@
  *   "again"                re-read src/orders.ts: the identical call to an earlier, possibly elided, read
  *   "stub"                 show the first elision stub it received (with its preview lines)
  *   "still know"/"summar"  just report the context it received
+ *   (request without tools) pi's compaction asks for a summary and offers no tools: reply with a canned summary
  */
 const port = Number(process.argv[2] ?? 8993);
 
@@ -18,7 +19,12 @@ type Msg = { role: string; content?: unknown; tool_calls?: { function: { name: s
 
 const SUMMARY = Array.from({ length: 60 }, (_, i) => `export const summaryRow${i} = { id: "row-${i}", qty: ${i + 1}, price: ${(i + 1) * 3}.5 };`).join("\n") + "\n";
 const FILES = ["src/orders.ts", "src/inventory.ts", "src/billing.ts", "src/shipping.ts", "src/reports.ts"];
-const USAGE = { prompt_tokens: 5_200, completion_tokens: 420, total_tokens: 5_620, prompt_tokens_details: { cached_tokens: 4_300 } };
+/** Usage that grows with what was sent (a fixed 4k system prompt plus ~2.5 characters per token), like a real provider's. */
+const usageFor = (messages: Msg[]) => {
+	const chars = messages.reduce((n, m) => n + text(m).length + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0), 0);
+	const prompt = 4_000 + Math.round(chars / 2.5);
+	return { prompt_tokens: prompt, completion_tokens: 420, total_tokens: prompt + 420, prompt_tokens_details: { cached_tokens: Math.max(0, prompt - 900) } };
+};
 
 const text = (m: Msg | undefined): string => {
 	const c = m?.content;
@@ -39,8 +45,13 @@ function report(messages: Msg[]): string {
 
 type Reply = { kind: "text"; text: string } | { kind: "tool"; name: string; args: object };
 
-function decide(messages: Msg[]): Reply {
+function decide(messages: Msg[], hasTools: boolean): Reply {
 	const last = messages[messages.length - 1];
+	// pi's compaction summarises the conversation in requests that offer no tools (two of them: the history and the
+	// split turn): answer with a canned summary, never a tool call
+	if (!hasTools) {
+		return { kind: "text", text: "Summary: surveyed five source files under src (orders, inventory, billing, shipping, reports); nothing was edited. Next step: ask the user what to change." };
+	}
 	if (last?.role === "tool") {
 		let lastUser = -1;
 		messages.forEach((m, i) => { if (m.role === "user") lastUser = i; });
@@ -75,8 +86,9 @@ Bun.serve({
 		const url = new URL(req.url);
 		if (req.method === "GET" && url.pathname.endsWith("/models")) return Response.json({ object: "list", data: [{ id: "demo-model", object: "model" }] });
 		if (req.method !== "POST" || !url.pathname.endsWith("/chat/completions")) return new Response("not found", { status: 404 });
-		const body = (await req.json().catch(() => ({}))) as { stream?: boolean; messages?: Msg[] };
-		const reply = decide(body.messages ?? []);
+		const body = (await req.json().catch(() => ({}))) as { stream?: boolean; messages?: Msg[]; tools?: unknown[] };
+		const reply = decide(body.messages ?? [], Array.isArray(body.tools) && body.tools.length > 0);
+		const USAGE = usageFor(body.messages ?? []);
 
 		if (!body.stream) {
 			const message = reply.kind === "text"

@@ -17,7 +17,7 @@ const CMD = "context-diet";
 
 describe("VHS tapes", () => {
 	it("there is a tape for every feature we show off", () => {
-		for (const name of ["overview", "commands", "completion", "recovery", "arguments"]) expect(tapes, name).toContain(`${name}.tape`);
+		for (const name of ["overview", "commands", "completion", "recovery", "arguments", "compaction"]) expect(tapes, name).toContain(`${name}.tape`);
 	});
 
 	for (const tape of tapes) {
@@ -174,8 +174,8 @@ describe("scripted mock model (examples/vhs/mock-llm.ts)", () => {
 	let proc: ReturnType<typeof Bun.spawn>;
 	const FILES = ["src/orders.ts", "src/inventory.ts", "src/billing.ts", "src/shipping.ts", "src/reports.ts"];
 
-	const ask = async (messages: unknown[], stream = false) => {
-		const res = await fetch(`${base}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "demo-model", stream, messages }) });
+	const ask = async (messages: unknown[], stream = false, withTools = true) => {
+		const res = await fetch(`${base}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "demo-model", stream, messages, tools: withTools ? [{ type: "function", function: { name: "read" } }] : undefined }) });
 		return stream ? res : ((await res.json()) as any);
 	};
 	const user = (content: string) => ({ role: "user", content });
@@ -266,6 +266,24 @@ describe("scripted mock model (examples/vhs/mock-llm.ts)", () => {
 		const two = said(await ask([user("x"), elidedWrite, result("ok"), elidedWrite, result("ok"), user("What do you still know?")]));
 		expect(two).toContain("2 tool calls with elided arguments.");
 		expect(said(await ask([...survey(2), user("What do you still know?")]))).not.toContain("elided arguments");
+	});
+
+	it("a request without tools is pi's compaction: it gets a canned summary, never a tool call", async () => {
+		for (const messages of [[user("Survey the project")], survey(5), []]) {
+			const r = await ask(messages, false, false);
+			expect(r.choices[0].finish_reason).toBe("stop");
+			expect(said(r)).toContain("Summary: surveyed five source files");
+		}
+		const streamed = await ((await ask([user("Survey the project")], true, false)) as Response).text();
+		expect(streamed).not.toContain("tool_calls");
+		expect(streamed).toContain("finish_reason\":\"stop");
+	});
+
+	it("reports usage that grows with what it received, like a real provider", async () => {
+		const small = (await ask([user("hello")])).usage.prompt_tokens;
+		const big = (await ask(survey(5))).usage.prompt_tokens;
+		expect(small).toBeGreaterThan(4000);
+		expect(big).toBeGreaterThan(small + 3000);
 	});
 
 	it("tool results may arrive as content parts, and anything else gets a polite scripted line", async () => {
