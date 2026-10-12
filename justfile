@@ -94,15 +94,31 @@ version: _check-nu
 bump kind: _check-nu _check-git-cliff
     nu scripts/bump_version.nu --yes {{ kind }}
 
-# Push main and the newest tag — CI then publishes to npm
+# Push main and the newest tag to every remote — CI on each host then publishes to npm
 release-push:
     #!/usr/bin/env sh
     set -e
     tag="v$(nu scripts/version.nu)"
     nu scripts/ci/validate_tag.nu "$tag" >/dev/null
-    git push origin main
-    git push origin "$tag"
-    echo "🚀 pushed $tag — the Release workflow publishes it"
+    failed=""
+    for r in {{ REMOTES }}; do
+        git push "$r" main && git push "$r" "$tag" || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to push to:$failed"; exit 1; fi
+    echo "🚀 pushed $tag to {{ REMOTES }}: the Release workflow publishes it"
+
+# Force-push main and the newest tag to every remote. Be sure!
+release-push-force:
+    #!/usr/bin/env sh
+    set -e
+    tag="v$(nu scripts/version.nu)"
+    nu scripts/ci/validate_tag.nu "$tag" >/dev/null
+    failed=""
+    for r in {{ REMOTES }}; do
+        git push --force "$r" main && git push --force "$r" "$tag" || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to force-push to:$failed"; exit 1; fi
+    echo "🚀 force-pushed $tag to {{ REMOTES }}"
 
 # Dry-run the npm publish locally
 publish-dry: check
@@ -111,6 +127,111 @@ publish-dry: check
 # Publish locally (needs `npm login` + OTP). CI normally does this on a tag.
 publish: check
     npm publish --access public
+
+# ── Git remotes & pushing ─────────────────────────────────────────────────────
+# pi-context-diet lives on GitHub (origin) and the Gitea Starscream instance (starscream).
+# Every *-all recipe loops over REMOTES and keeps going when one fails.
+
+REMOTES := "origin starscream"
+
+# Show all configured remotes
+remotes:
+    @git remote -v
+
+# Push the current branch to GitHub (origin)
+push:
+    git push origin main
+
+# Push the current branch to Gitea Starscream
+push-starscream:
+    git push starscream main
+
+# Force-push the current branch to GitHub (origin). No lease: be sure!
+push-force:
+    git push --force origin main
+
+# Force-push the current branch to Gitea Starscream. No lease: be sure!
+push-starscream-force:
+    git push --force starscream main
+
+# Push the current branch to every remote (continues on failure)
+push-all:
+    #!/usr/bin/env sh
+    failed=""
+    for r in {{ REMOTES }}; do
+        git push "$r" main || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to push to:$failed"; exit 1; fi
+    echo "✅ Pushed to: {{ REMOTES }}"
+
+# Force-push the current branch to every remote (leases are NOT used — be sure!)
+push-all-force:
+    #!/usr/bin/env sh
+    failed=""
+    for r in {{ REMOTES }}; do
+        git push --force "$r" main || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to force-push to:$failed"; exit 1; fi
+    echo "✅ Force-pushed to: {{ REMOTES }}"
+
+# Pull the current branch from GitHub (origin)
+pull:
+    git pull origin main
+
+# Pull the current branch from Gitea Starscream
+pull-starscream:
+    git pull starscream main
+
+# Pull the current branch from every remote (continues on failure)
+pull-all:
+    #!/usr/bin/env sh
+    failed=""
+    for r in {{ REMOTES }}; do
+        git pull "$r" main || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to pull from:$failed"; exit 1; fi
+    echo "✅ Pulled from: {{ REMOTES }}"
+
+# Push all tags to GitHub
+push-tags:
+    git push origin --tags
+
+# Push all tags to every remote (continues on failure)
+push-tags-all:
+    #!/usr/bin/env sh
+    failed=""
+    for r in {{ REMOTES }}; do
+        git push "$r" --tags || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to push tags to:$failed"; exit 1; fi
+    echo "✅ Tags pushed to: {{ REMOTES }}"
+
+# Force-push all tags to GitHub (moves existing tags). Be sure!
+push-tags-force:
+    git push --force origin --tags
+
+# Force-push all tags to every remote (continues on failure; moves existing tags). Be sure!
+push-tags-all-force:
+    #!/usr/bin/env sh
+    failed=""
+    for r in {{ REMOTES }}; do
+        git push --force "$r" --tags || failed="$failed $r"
+    done
+    if [ -n "$failed" ]; then echo "⚠️  Failed to force-push tags to:$failed"; exit 1; fi
+    echo "✅ Tags force-pushed to: {{ REMOTES }}"
+
+# Force-sync Gitea Starscream with GitHub (main + tags)
+sync-starscream:
+    git push starscream main --force
+    git push starscream --tags --force
+    @echo "✅ Gitea Starscream force-synced."
+
+# Add the remotes if they are missing
+setup-remotes:
+    #!/usr/bin/env sh
+    git remote get-url origin >/dev/null 2>&1 || git remote add origin git@github.com:sorinirimies/pi-context-diet.git
+    git remote get-url starscream >/dev/null 2>&1 || git remote add starscream gitea@192.168.1.44:sorin/pi-context-diet.git
+    git remote -v
 
 # ── VHS demo GIFs ─────────────────────────────────────────────────────────────
 

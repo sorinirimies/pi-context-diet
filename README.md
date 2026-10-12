@@ -131,6 +131,7 @@ bun install
 just check          # typecheck + tests + pack check + nushell tests (what CI runs)
 just test           # bun test only (with coverage)
 just coverage       # tests + a coverage table
+just push-all       # push main to every remote (origin + starscream); see `just --list` for pull-all, push-tags-all, ...
 ```
 
 **Coverage:** every `bun test` collects coverage (`bunfig.toml`) and **fails below 95% lines / 95% functions**. CI shows the table on the run page and uploads `lcov.info`.
