@@ -702,15 +702,21 @@ export default function contextDiet(pi: ExtensionAPI) {
 	const showStatus = (ctx: ExtensionContext) => {
 		try {
 			if (!ctx.hasUI) return;
-			if (!config.enabled || !config.showStatus || stats.lastCount + stats.lastArgCount === 0) {
+			if (!config.enabled || !config.showStatus) {
 				ctx.ui.setStatus("context-diet", "");
 				return;
 			}
 			const t = ctx.ui.theme;
+			// `always` rewrites the prompt cache on every pass: never let it go unnoticed.
+			const warn = config.mode === "always" ? t.fg("warning", " ⚠ mode always") : "";
+			if (stats.lastCount + stats.lastArgCount === 0) {
+				ctx.ui.setStatus("context-diet", warn ? `${t.fg("warning", "🥗")}${warn}` : "");
+				return;
+			}
 			const recovered = meter.recovered > 0 ? t.fg("warning", ` ↺${meter.recovered}`) : "";
 			ctx.ui.setStatus(
 				"context-diet",
-				`${t.fg("success", "🥗")} ${t.fg("accent", `−${formatTokens(estimateTokens(stats.lastChars))}`)} ${t.fg("dim", `/req · ${formatTokens(estimateTokens(stats.cumulativeChars))} saved`)}${recovered}`,
+				`${t.fg("success", "🥗")} ${t.fg("accent", `−${formatTokens(estimateTokens(stats.lastChars))}`)} ${t.fg("dim", `/req · ${formatTokens(estimateTokens(stats.cumulativeChars))} saved`)}${recovered}${warn}`,
 			);
 		} catch {
 			/* ignore */
@@ -734,6 +740,13 @@ export default function contextDiet(pi: ExtensionAPI) {
 		stats = emptyStats();
 		force = false;
 		showStatus(ctx);
+		try {
+			if (config.enabled && config.mode === "always" && ctx.hasUI) {
+				ctx.ui.notify("context-diet: mode is 'always', which rewrites the prompt cache on every pass. Use it only without prompt caching; switch back with /context-diet mode cold", "warning");
+			}
+		} catch {
+			/* a warning must never break session start */
+		}
 	});
 
 	// pi misbehaves when a handler throws, so any unexpected error here means "send the conversation unchanged".

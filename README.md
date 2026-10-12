@@ -114,7 +114,7 @@ Tab-completion works for all of these. Unknown input prints usage instead of fai
 
 - **A stub, not a loss:** the model is told what was elided and to re-run it if needed. The saved transcript on disk is unchanged.
 - **Cache-safe by construction:** between cold starts the elided prefix is byte-identical (a simulated 120-turn session with two pauses is a test), so it never causes a cache miss on its own.
-- **`mode always` is for providers without prompt caching only:** with caching, every pass rewrites the cache.
+- **`mode always` is for providers without prompt caching only:** with caching, every pass rewrites the cache. It is never silent: pi shows a warning at session start and the footer carries a `⚠ mode always` marker for as long as it is active.
 - **Pi's own cache warmer** may keep the cache warm through a pause. Then there is no cold start, nothing is elided, and you lose nothing.
 - **Estimates:** the figures above are estimates from one set of sessions; your mileage depends on how long your sessions run and how often you pause.
 
@@ -156,12 +156,10 @@ just demo             # try it yourself in a real pi: ask it to "Survey the proj
 |---|---|---|
 | **CI** | push / PR | quality gate on Linux; tests on macOS and Windows |
 | **Auto-merge library updates** | CI finished on a Dependabot PR | **patch and minor** updates (GitHub Actions) are merged automatically, but only **after CI is green** on that exact commit; a **major** update waits for you. Then it starts the nightly workflow so the update ships |
-| **Nightly Dependency Update** | every night (02:00 UTC) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
+| **Nightly Dependency Update** | every night (GitHub 02:00 UTC, Gitea 02:30) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
 | **Release** | tag `vX.Y.Z` | validates the tag against `package.json`, runs the gate, `npm publish` (idempotent, with provenance), creates the release |
 
 So library updates need no human: they are merged once CI passes, built, versioned and published as a patch. A downgrade, a failing check, or a major update stops the chain and waits for review.
-
-**Gitea** (`starscream`) is a mirror: it runs CI only. Releases and dependency updates come from GitHub, so the two hosts never diverge.
 
 Manual release: `just bump patch` (or `minor` / `major` / `X.Y.Z`), then `just release-push`.
 

@@ -416,6 +416,49 @@ describe("extension wiring", () => {
 		expect(t.handlers.tool_call({ toolName: "bash", input: { command: "echo step 1" } }, t.ctx)).toBeUndefined();
 	});
 
+	// -- the dangerous mode is never silent -------------------------------------------------------------
+
+	it("warns at session start when mode is always (it rewrites the prompt cache on every pass)", async () => {
+		const t = await boot({ config: { mode: "always" } });
+		expect(t.notes.at(-1)).toContain("mode is 'always'");
+		expect(t.notes.at(-1)).toContain("/context-diet mode cold");
+	});
+
+	it("shows ⚠ mode always in the footer even before anything is elided, and after", async () => {
+		const t = await boot({ config: { mode: "always", keepTurns: 5 } });
+		expect(t.statuses.at(-1)).toContain("⚠ mode always");
+		t.request(longConvo(MIN));
+		expect(t.statuses.at(-1)).toContain("🥗");
+		expect(t.statuses.at(-1)).toContain("⚠ mode always");
+	});
+
+	it("says nothing in the default cold mode, when disabled, or without a UI", async () => {
+		const cold = await boot();
+		expect(cold.notes).toEqual([]);
+		expect(cold.statuses.at(-1)).toBe("");
+		const off = await boot({ config: { mode: "always", enabled: false } });
+		expect(off.notes).toEqual([]);
+		const quiet = await boot({ config: { mode: "always" }, hasUI: false });
+		expect(quiet.notes).toEqual([]);
+		expect(quiet.statuses).toEqual([]);
+	});
+
+	it("a failing notify cannot break session start", async () => {
+		writeConfig({ mode: "always" });
+		const handlers: Record<string, Function> = {};
+		contextDiet({ on: (e: string, f: Function) => (handlers[e] = f), registerCommand() {}, appendEntry() {} } as any);
+		const ctx: any = { hasUI: true, sessionManager: { getEntries: () => [] }, ui: { theme: { fg: (_: string, t: string) => t }, setStatus() {}, notify() { throw new Error("ui down"); } } };
+		await expect(handlers.session_start({}, ctx)).resolves.toBeUndefined();
+	});
+
+	it("switching to mode always from the command also puts the marker in the footer", async () => {
+		const t = await boot();
+		await t.command.handler("mode always", t.ctx);
+		expect(t.statuses.at(-1)).toContain("⚠ mode always");
+		await t.command.handler("mode cold", t.ctx);
+		expect(t.statuses.at(-1)).toBe("");
+	});
+
 	it("registers completions pi can apply", async () => {
 		const t = await boot();
 		expect(typeof t.command.getArgumentCompletions).toBe("function");

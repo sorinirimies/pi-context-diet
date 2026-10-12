@@ -12,14 +12,15 @@ name: Nightly Dependency Update
 #   * feat / fix / perf commits are waiting.
 # No changes => nothing is committed, tagged or released.
 #
-# GitHub is the only host that releases: Gitea (`starscream`) is a mirror and runs CI only.
+# This host runs on its own: no mirroring to Gitea (it has its own nightly). Publishing
+# to npm is idempotent, so a version released by both hosts is published once.
 #
 # Secrets: NPM_TOKEN is used by release.yml. GH_PAT (optional): lets the tag push itself
 # trigger release.yml and bypass branch protection; without it the release is dispatched.
 
 on:
   schedule:
-    - cron: "0 2 * * *" # 02:00 UTC
+    - cron: "0 2 * * *" # 02:00 UTC (Gitea runs at 02:30)
   workflow_dispatch:
     inputs:
       release:
