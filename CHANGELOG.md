@@ -3,6 +3,12 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.3.0](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.0) — 2026-10-12
+
+
+### ✨ Features
+
+- Calibration from real usage, show, cache-warming arbitration and opt-in compaction ([`2ff9ba2`](https://github.com/sorinirimies/pi-context-diet/commit/2ff9ba252d54bff6899593ab0615a47d2692aeb0))
 ## [0.2.2](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.2.2) — 2026-10-12
 
 
