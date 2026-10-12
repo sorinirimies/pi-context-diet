@@ -156,10 +156,12 @@ just demo             # try it yourself in a real pi: ask it to "Survey the proj
 |---|---|---|
 | **CI** | push / PR | quality gate on Linux; tests on macOS and Windows |
 | **Auto-merge library updates** | CI finished on a Dependabot PR | **patch and minor** updates (GitHub Actions) are merged automatically, but only **after CI is green** on that exact commit; a **major** update waits for you. Then it starts the nightly workflow so the update ships |
-| **Nightly Dependency Update** | every night (GitHub 02:00 UTC, Gitea 02:30) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
+| **Nightly Dependency Update** | every night (02:00 UTC) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
 | **Release** | tag `vX.Y.Z` | validates the tag against `package.json`, runs the gate, `npm publish` (idempotent, with provenance), creates the release |
 
 So library updates need no human: they are merged once CI passes, built, versioned and published as a patch. A downgrade, a failing check, or a major update stops the chain and waits for review.
+
+**Gitea** (`starscream`) is a mirror: it runs CI only. Releases and dependency updates come from GitHub, so the two hosts never diverge.
 
 Manual release: `just bump patch` (or `minor` / `major` / `X.Y.Z`), then `just release-push`.
 

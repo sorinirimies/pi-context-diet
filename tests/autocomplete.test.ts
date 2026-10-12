@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 // pi's REAL autocomplete provider: the one that crashed a sibling plugin ("reading 'endsWith'") when
 // its completions lacked a label. Mock-only tests never exercised it.
 import { CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
@@ -16,10 +19,22 @@ describe("pi's real autocomplete provider × the context-diet command", () => {
 	const signal = new AbortController().signal;
 	const ctx = () => ({ hasUI: false, sessionManager: { getEntries: () => [] }, ui: { notify: (m: string) => notes.push(m), setStatus() {}, theme: { fg: (_: string, t: string) => t } } });
 
+	// The command handler persists config: never let it touch a real ~/.pi/agent.
+	let dir: string;
+	let prevDir: string | undefined;
 	beforeEach(() => {
+		prevDir = process.env.PI_CODING_AGENT_DIR;
+		dir = mkdtempSync(join(tmpdir(), "pi-diet-ac-"));
+		process.env.PI_CODING_AGENT_DIR = dir;
 		notes = [];
 		contextDiet({ on() {}, appendEntry() {}, registerCommand: (_: string, c: any) => (command = c) } as any);
 		provider = new CombinedAutocompleteProvider([{ name: "context-diet", description: command.description, getArgumentCompletions: command.getArgumentCompletions }], process.cwd());
+	});
+
+	afterEach(() => {
+		if (prevDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = prevDir;
+		rmSync(dir, { recursive: true, force: true });
 	});
 
 	const suggest = (line: string) => provider.getSuggestions([line], 0, line.length, { signal });
