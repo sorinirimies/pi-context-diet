@@ -3,6 +3,17 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.2.2](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.2.2) — 2026-10-12
+
+
+### 🔧 Build & CI
+
+- **deps:** Bump actions/setup-node from 7.0.0 to 7.1.0 (#1) ([`f3933e4`](https://github.com/sorinirimies/pi-context-diet/commit/f3933e4b9894abff3662e8a90935c439aa0363a6))
+
+### 🧹 Chores
+
+- Just recipes to push, pull and force-push to several remotes (push-all, pull-all, push-tags-all, *-force, sync-starscream, setup-remotes; release-push goes to every remote) ([`fca0579`](https://github.com/sorinirimies/pi-context-diet/commit/fca0579fe06c45a0c88d0a150bd08f8bcca74a36))
+- Justfile remotes and release recipes in the gitkraft style (gitea-microlab, gitea-starscream, gitea-nexus-lab: push, pull, release, sync, all-remotes and force variants; unconfigured remotes are skipped) ([`2a477a3`](https://github.com/sorinirimies/pi-context-diet/commit/2a477a3ff8215800346916178e47dbc05e8bc196))
 ## [0.2.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.2.1) — 2026-10-12
 
 
