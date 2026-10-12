@@ -3,6 +3,16 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.2.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.2.1) — 2026-10-12
+
+
+### 🐛 Fixes
+
+- Never silent in the cache-breaking mode: warn at session start and mark the footer when mode is always ([`a9ba087`](https://github.com/sorinirimies/pi-context-diet/commit/a9ba087a5273167f641d303d13b8c490aa5fe289))
+
+### 🧪 Tests
+
+- No test may touch the real ~/.pi/agent (preload sets a temp config dir; the autocomplete test persisted mode=always into it) ([`be53ad3`](https://github.com/sorinirimies/pi-context-diet/commit/be53ad3cfb0dd58ae8a96c12a6ab81ebd9e601b4))
 ## [0.2.0](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.2.0) — 2026-10-12
 
 
