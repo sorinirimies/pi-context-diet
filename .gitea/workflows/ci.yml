@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The same gate `just check` and the release run: typecheck + tests + pack + nu tests.
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Install nushell
+        uses: hustcer/setup-nu@95cd3bfe252450ef7d35dd9a7ddecf3484341134 # v3
+        with:
+          version: "0.111.0"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Quality gate (coverage thresholds are enforced by bunfig.toml)
+        run: nu scripts/ci/quality_gate.nu
+
+      - name: Coverage summary
+        if: always()
+        run: nu scripts/ci/coverage_summary.nu
+
+  # Day/week/month bucketing is local-time: exercise the extremes.
+  timezones:
+    name: test (${{ matrix.tz }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tz: [Pacific/Auckland, Pacific/Pago_Pago, America/Los_Angeles]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - run: bun install --frozen-lockfile
+
+      - name: bun test
+        run: bun test
+        env:
+          TZ: ${{ matrix.tz }}

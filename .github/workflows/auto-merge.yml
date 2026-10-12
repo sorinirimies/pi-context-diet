@@ -1,0 +1,100 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Auto-merge library updates — after CI is green, then ship a patch
+# ──────────────────────────────────────────────────────────────────────────────
+# Dependabot keeps the GitHub Actions up to date (see dependabot.yml). npm dependencies
+# are updated by the nightly job (deps-update.yml), which commits straight to main.
+#
+# This workflow merges a Dependabot PR only AFTER the CI workflow finished successfully
+# for that exact commit (this repo has no branch protection, so `gh pr merge --auto` would
+# merge immediately). Patch and minor updates merge on their own; a major update, or one
+# that cannot be classified, waits for a person (scripts/ci/update_type.nu).
+#
+# After a merge it starts the nightly workflow with release=true: the merge commit is a
+# `ci(deps)` library update, so a new patch version is built, tagged and published
+# (scripts/ci/unreleased.nu, release.yml).
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Auto-merge library updates
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  merge:
+    name: Merge after CI, then release
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    steps:
+      # The default branch: trusted scripts, never the PR's code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install nushell
+        uses: hustcer/setup-nu@95cd3bfe252450ef7d35dd9a7ddecf3484341134 # v3
+        with:
+          version: "0.111.0"
+
+      - name: Find the pull request
+        id: pr
+        run: |
+          number=$(gh pr list --repo "$REPO" --head "$HEAD_BRANCH" --state open --json number -q '.[0].number')
+          if [ -z "$number" ]; then echo "No open PR for $HEAD_BRANCH (already merged or closed)."; echo "number=" >> "$GITHUB_OUTPUT"; exit 0; fi
+          current=$(gh pr view "$number" --repo "$REPO" --json headRefOid -q .headRefOid)
+          # CI must have passed for the commit that is on the PR NOW
+          if [ "$current" != "$HEAD_SHA" ]; then echo "PR head moved on ($current != $HEAD_SHA); a newer CI run will decide."; echo "number=" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Classify the update
+        id: kind
+        if: steps.pr.outputs.number != ''
+        run: |
+          title=$(gh pr view "$NUMBER" --repo "$REPO" --json title -q .title)
+          messages=$(gh pr view "$NUMBER" --repo "$REPO" --json commits -q '.commits[].messageBody')
+          echo "PR #$NUMBER: $title"
+          nu scripts/ci/update_type.nu --title "$title" --messages "$messages" --output "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.pr.outputs.number }}
+
+      - name: Merge (squash)
+        id: merge
+        if: steps.kind.outputs.automerge == 'true'
+        run: |
+          gh pr review "$NUMBER" --repo "$REPO" --approve || true
+          gh pr merge "$NUMBER" --repo "$REPO" --squash --delete-branch
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.pr.outputs.number }}
+
+      - name: Needs a human
+        if: steps.kind.outputs.automerge == 'false'
+        run: |
+          echo "::notice::PR ${NUMBER} is a ${KIND} update, so it is not auto-merged. Review it by hand."
+        env:
+          NUMBER: ${{ steps.pr.outputs.number }}
+          KIND: ${{ steps.kind.outputs.type }}
+
+      # Build, tag and publish a patch for the library update that just landed.
+      - name: Release a patch
+        if: steps.merge.outputs.merged == 'true'
+        run: gh workflow run deps-update.yml --repo "$REPO" -f release=true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}

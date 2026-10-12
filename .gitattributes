@@ -1,0 +1,7 @@
+# Demo recordings and screenshots live in Git LFS (keeps clones small).
+*.gif filter=lfs diff=lfs merge=lfs -text
+examples/vhs/generated/*.png filter=lfs diff=lfs merge=lfs -text
+
+# Scripts and tapes must stay LF everywhere (a CRLF breaks bash and VHS on Windows checkouts).
+*.sh text eol=lf
+*.tape text eol=lf
