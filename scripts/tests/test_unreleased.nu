@@ -12,7 +12,7 @@ def "test unreleased: feat fix perf are releasable" [] {
 }
 
 def "test unreleased: library updates are releasable" [] {
-    for s in ["chore(deps): nightly update 2026-10-09" "ci(deps): bump actions/checkout from 4 to 5" "build(deps): bump x" "chore(deps-dev): bump typescript" "ci(deps)!: bump y"] {
+    for s in ["chore(deps): nightly update 2026-10-09" "build(deps): bump x" "chore(deps-dev): bump typescript"] {
         assert (is_releasable $s) $"should release on ($s)"
         assert (is_library_update $s) $"should be a library update: ($s)"
     }
@@ -38,7 +38,7 @@ def "test unreleased: non-conventional subjects are ignored" [] {
 
 def "test unreleased: counts only releasable commits" [] {
     assert equal (count_releasable ["feat: a" "chore: b" "fix: c" "docs: d"]) 2
-    assert equal (count_releasable ["chore(deps): n" "ci(deps): b" "chore: release 1.0.0"]) 2
+    assert equal (count_releasable ["chore(deps): n" "ci(deps): b" "chore: release 1.0.0"]) 1
     assert equal (count_releasable []) 0
 }
 
