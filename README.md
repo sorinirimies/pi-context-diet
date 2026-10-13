@@ -42,9 +42,15 @@ On the 221 sessions above, doing exactly this at the ~1,050 cold starts would ha
 
 ## Install
 
+From npm:
+
 ```bash
 pi install npm:pi-context-diet
-# or
+```
+
+Or from git:
+
+```bash
 pi install git:github.com/sorinirimies/pi-context-diet
 ```
 
