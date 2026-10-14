@@ -3,6 +3,18 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.3.3](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.3) — 2026-10-14
+
+
+### 📚 Docs
+
+- Separate install commands for individual copy ([`2a6b502`](https://github.com/sorinirimies/pi-context-diet/commit/2a6b5021749fb3c76721cceabf391288103691e0))
+- Separate install commands for individual copy ([`aefcad3`](https://github.com/sorinirimies/pi-context-diet/commit/aefcad3bd3ed571859899f42cb05136f5f14ce7e))
+
+### 🔧 Build & CI
+
+- Don't release on ci(deps) (GitHub Actions) bumps ([`f843efa`](https://github.com/sorinirimies/pi-context-diet/commit/f843efac56cdffab05961ccbcad0e8e7477310b0))
+- Don't release on ci(deps) (GitHub Actions) bumps ([`9d82f89`](https://github.com/sorinirimies/pi-context-diet/commit/9d82f89942d973d6033aa8c02b7fbb1c9cfc8266))
 ## [0.3.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.1) — 2026-10-12
 
 
