@@ -420,6 +420,27 @@ describe("write / edit arguments", () => {
 		const [w, e] = callIds(m);
 		expect(eligibleArgs(m, policy(), new Set())).toEqual([w, e]);
 	});
+	it("eligibleArgs: skips assistant messages with thinking blocks (signed, must stay byte-identical)", () => {
+		for (const type of ["thinking", "redacted_thinking"]) {
+			const m = session();
+			const [w, e] = callIds(m);
+			const first = m.find((x) => x.role === "assistant") as Message;
+			(first.content as any[]).unshift({ type, thinking: "hmm", thinkingSignature: "sig" });
+			expect(eligibleArgs(m, policy(), new Set())).toEqual([e]);
+			expect(w).toBeDefined();
+		}
+	});
+	it("applyElision never rewrites an assistant message that has thinking blocks", () => {
+		const m = session();
+		const [w] = callIds(m);
+		const first = m.find((x) => x.role === "assistant") as Message;
+		(first.content as any[]).unshift({ type: "thinking", thinking: "hmm", thinkingSignature: "sig" });
+		const [, e] = callIds(m);
+		const r = applyElision(deepFreeze(m), new Set(), { argIds: new Set([w, e]) });
+		expect(r.argCount).toBe(1); // only the edit call (no thinking) was elided
+		expect(r.messages.filter((x) => x.role === "assistant" && JSON.stringify(x.content).includes("pi-context-diet:"))).toHaveLength(1);
+		expect(r.messages[m.indexOf(first)]).toBe(first);
+	});
 	it("eligibleArgs: skips young calls, protected tools and already-elided ones", () => {
 		const m = session();
 		const [w, e] = callIds(m);

@@ -267,6 +267,11 @@ export function stubText(name: string, label: string, chars: number, lines: numb
 	return out + "]";
 }
 
+/** Assistant messages with thinking blocks must be sent back byte-identical (signed), so they are never rewritten. */
+export function hasThinking(m: Message): boolean {
+	return partsOf(m.content).some((p) => p?.type === "thinking" || p?.type === "redacted_thinking");
+}
+
 /** For every message, how many assistant messages come after it. */
 export function assistantTurnsAfter(messages: Message[]): number[] {
 	const ages = new Array<number>(messages.length).fill(0);
@@ -395,6 +400,7 @@ export function eligibleArgs(messages: Message[], policy: Policy, already: Reado
 	const ids: string[] = [];
 	messages.forEach((m, i) => {
 		if (m.role !== "assistant" || ages[i] <= policy.keepTurns) return;
+		if (hasThinking(m)) return; // signed thinking blocks: the API rejects any edit to the message
 		for (const p of partsOf(m.content)) {
 			if (p?.type !== "toolCall" || typeof p.id !== "string" || typeof p.name !== "string") continue;
 			if (!ARG_TOOLS.has(p.name) || policy.neverElide.has(p.name) || already.has(p.id)) continue;
@@ -480,7 +486,7 @@ export function applyElision(
 			if (call) infos.push({ id: m.toolCallId, tool, sig: callSignature(call.name, call.args), chars: size.chars });
 			return { ...m, content: [{ type: "text", text }] };
 		}
-		if (m.role === "assistant" && argIds.size > 0 && Array.isArray(m.content)) {
+		if (m.role === "assistant" && argIds.size > 0 && Array.isArray(m.content) && !hasThinking(m)) {
 			let changed = false;
 			const content = (m.content as Part[]).map((p) => {
 				if (p?.type !== "toolCall" || typeof p.id !== "string" || typeof p.name !== "string" || !argIds.has(p.id) || !p.arguments) return p;
