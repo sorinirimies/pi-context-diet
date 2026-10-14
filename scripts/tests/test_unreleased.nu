@@ -12,9 +12,15 @@ def "test unreleased: feat fix perf are releasable" [] {
 }
 
 def "test unreleased: library updates are releasable" [] {
-    for s in ["chore(deps): nightly update 2026-10-09" "build(deps): bump x" "chore(deps-dev): bump typescript"] {
+    for s in ["chore(deps): nightly update 2026-10-09" "build(deps): bump x"] {
         assert (is_releasable $s) $"should release on ($s)"
         assert (is_library_update $s) $"should be a library update: ($s)"
+    }
+}
+
+def "test unreleased: dev tooling updates never release" [] {
+    for s in ["chore(deps-dev): bump typescript" "build(deps-dev): bump x" "chore: nightly dev-tooling lockfile update 2026-10-14 (not released)"] {
+        assert (not (is_releasable $s)) $"dev-only must not release: ($s)"
     }
 }
 

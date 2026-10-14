@@ -4,7 +4,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # A patch release is worth publishing when there is
 #   * a `feat`, `fix` or `perf` commit, or
-#   * a library update: `chore(deps)`, `chore(deps-dev)`, `build(deps)` (the nightly
+#   * a library update: `chore(deps)`, `build(deps)` (runtime only; dev tooling never releases) (the nightly
 #     lockfile update and merged Dependabot PRs).
 # Plain chore / ci / docs / test / refactor / style commits and release commits are not.
 # With no release tag at all nothing is released automatically (create a baseline tag first).
@@ -20,9 +20,9 @@ export def is_releasable [subject: string]: nothing -> bool {
     ($subject | find --regex '^(feat|fix|perf)(\([^)]*\))?!?:' | is-not-empty) or (is_library_update $subject)
 }
 
-# `chore(deps): …`, `build(deps-dev): …`: what the nightly job and Dependabot write.
+# `chore(deps): …`, `build(deps): …`: what the nightly job and Dependabot write.
 export def is_library_update [subject: string]: nothing -> bool {
-    ($subject | find --regex '^(chore|build)\(deps(-dev)?\)!?:' | is-not-empty)
+    ($subject | find --regex '^(chore|build)\(deps\)!?:' | is-not-empty)
 }
 
 export def count_releasable [subjects: list]: nothing -> int {

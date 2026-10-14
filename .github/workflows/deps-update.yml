@@ -44,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       changed: ${{ steps.deps.outputs.changed }}
+      ships: ${{ steps.deps.outputs.ships }}
       releasable: ${{ steps.unreleased.outputs.releasable }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -68,6 +69,7 @@ jobs:
         run: |
           T="${RUNNER_TEMP:-/tmp}"
           nu scripts/ci/snapshot_deps.nu "$T/before-all.txt"
+          nu scripts/ci/snapshot_deps.nu "$T/before-prod.txt" --prod
 
       - name: Update dependencies (within their ranges)
         run: |
@@ -80,11 +82,15 @@ jobs:
         run: |
           T="${RUNNER_TEMP:-/tmp}"
           nu scripts/ci/snapshot_deps.nu "$T/after-all.txt"
+          nu scripts/ci/snapshot_deps.nu "$T/after-prod.txt" --prod
           if git diff --quiet -- bun.lock package.json; then
             echo "No dependency changes detected."
             echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'ships=false' >> "$GITHUB_OUTPUT"
           else
             nu scripts/ci/dep_changes.nu "$T/before-all.txt"  "$T/after-all.txt"  --key changed --output "$GITHUB_OUTPUT"
+            # `ships` = a RUNTIME dependency really moved up. Dev tooling alone never publishes.
+            nu scripts/ci/dep_changes.nu "$T/before-prod.txt" "$T/after-prod.txt" --key ships   --output "$GITHUB_OUTPUT"
           fi
 
       - name: Unreleased feat/fix/perf commits?
@@ -189,10 +195,15 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json bun.lock
-          git commit -m "chore(deps): nightly update $(date -u '+%Y-%m-%d')"
+          if [ "${{ needs.update.outputs.ships }}" = "true" ]; then
+            git commit -m "chore(deps): nightly update $(date -u '+%Y-%m-%d')"
+          else
+            git commit -m "chore: nightly dev-tooling lockfile update $(date -u '+%Y-%m-%d') (not released)"
+          fi
 
       - name: Bump patch version, changelog, commit and tag
         id: bump
+        if: needs.update.outputs.ships == 'true' || needs.update.outputs.releasable == 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
