@@ -37,7 +37,11 @@ def main [--output: string = ""] {
         print "No release tag found: not releasing automatically. Create a baseline tag (git tag vX.Y.Z)."
     } else {
         let last = ($tag.stdout | str trim)
-        let subjects = (^git log $"($last)..HEAD" --no-merges --format=%s | lines)
+        # Both hosts (GitHub + Gitea) run the nightly and make parallel, same-subject commits
+        # (`chore(deps): nightly update <date>`). Merging them leaves the other host's copy
+        # "after" the tag although it was already released: ignore subjects already in the tag.
+        let released = (^git log $last --no-merges --format=%s | lines)
+        let subjects = (^git log $"($last)..HEAD" --no-merges --format=%s | lines | where {|s| $s not-in $released })
         $count = (count_releasable $subjects)
         $releasable = ($count > 0)
         print $"($last)..HEAD: ($subjects | length) commit\(s\), ($count) releasable \(feat/fix/perf\)."
