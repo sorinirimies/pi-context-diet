@@ -127,35 +127,35 @@ setup-remotes:
 
 # Push the current branch to GitHub (origin)
 push:
-    git push origin main
+    git push origin "$(git branch --show-current)"
 
 # Force-push the current branch to GitHub (origin). No lease!
 push-force:
-    git push --force origin main
+    git push --force origin "$(git branch --show-current)"
 
 # Push the current branch to Gitea Microlab
 push-gitea-microlab:
-    git push gitea-microlab main
+    git push gitea-microlab "$(git branch --show-current)"
 
 # Force-push the current branch to Gitea Microlab. No lease!
 push-gitea-microlab-force:
-    git push --force gitea-microlab main
+    git push --force gitea-microlab "$(git branch --show-current)"
 
 # Push the current branch to Gitea Starscream
 push-gitea-starscream:
-    git push gitea-starscream main
+    git push gitea-starscream "$(git branch --show-current)"
 
 # Force-push the current branch to Gitea Starscream. No lease!
 push-gitea-starscream-force:
-    git push --force gitea-starscream main
+    git push --force gitea-starscream "$(git branch --show-current)"
 
 # Push the current branch to Gitea (nexus-lab instance)
 push-gitea-nexus-lab:
-    git push gitea-nexus-lab main
+    git push gitea-nexus-lab "$(git branch --show-current)"
 
 # Force-push the current branch to Gitea (nexus-lab instance). No lease!
 push-gitea-nexus-lab-force:
-    git push --force gitea-nexus-lab main
+    git push --force gitea-nexus-lab "$(git branch --show-current)"
 
 # Push the current branch to every remote (continues on failure)
 push-all:
@@ -163,7 +163,7 @@ push-all:
     failed=""
     for r in {{ REMOTES }}; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git push "$r" main || failed="$failed $r"
+        git push "$r" "$(git branch --show-current)" || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Failed to push to:$failed"; exit 1; fi
     echo "✅ Pushed to every configured remote"
@@ -174,7 +174,7 @@ push-all-force:
     failed=""
     for r in {{ REMOTES }}; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git push --force "$r" main || failed="$failed $r"
+        git push --force "$r" "$(git branch --show-current)" || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Failed to force-push to:$failed"; exit 1; fi
     echo "✅ Force-pushed to every configured remote"
@@ -183,19 +183,19 @@ push-all-force:
 
 # Pull the current branch from GitHub (origin)
 pull:
-    git pull origin main
+    git pull origin "$(git branch --show-current)"
 
 # Pull the current branch from Gitea Microlab
 pull-gitea-microlab:
-    git pull gitea-microlab main
+    git pull gitea-microlab "$(git branch --show-current)"
 
 # Pull the current branch from Gitea Starscream
 pull-gitea-starscream:
-    git pull gitea-starscream main
+    git pull gitea-starscream "$(git branch --show-current)"
 
 # Pull the current branch from Gitea (nexus-lab instance)
 pull-gitea-nexus-lab:
-    git pull gitea-nexus-lab main
+    git pull gitea-nexus-lab "$(git branch --show-current)"
 
 # Pull the current branch from every remote (continues on failure)
 pull-all:
@@ -203,7 +203,7 @@ pull-all:
     failed=""
     for r in {{ REMOTES }}; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git pull "$r" main || failed="$failed $r"
+        git pull "$r" "$(git branch --show-current)" || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Failed to pull from:$failed"; exit 1; fi
     echo "✅ Pulled from every configured remote"
@@ -247,25 +247,25 @@ push-tags-all-force:
 # Bump (patch | minor | major | X.Y.Z), commit, tag, then push to GitHub: triggers the Release workflow
 release kind: (bump kind)
     @echo "Pushing release v$(nu scripts/version.nu) to GitHub…"
-    git push --follow-tags origin main
+    git push --follow-tags origin "$(git branch --show-current)"
     @echo "✅ Release v$(nu scripts/version.nu) pushed: the Release workflow will trigger automatically."
 
 # Bump, commit, tag, then push to Gitea Microlab only
 release-gitea-microlab kind: (bump kind)
     @echo "Pushing release v$(nu scripts/version.nu) to Gitea Microlab…"
-    git push --follow-tags gitea-microlab main
+    git push --follow-tags gitea-microlab "$(git branch --show-current)"
     @echo "✅ Release v$(nu scripts/version.nu) live on Gitea Microlab."
 
 # Bump, commit, tag, then push to Gitea Starscream only
 release-gitea-starscream kind: (bump kind)
     @echo "Pushing release v$(nu scripts/version.nu) to Gitea Starscream…"
-    git push --follow-tags gitea-starscream main
+    git push --follow-tags gitea-starscream "$(git branch --show-current)"
     @echo "✅ Release v$(nu scripts/version.nu) live on Gitea Starscream."
 
 # Bump, commit, tag, then push to Gitea (nexus-lab instance) only
 release-gitea-nexus-lab kind: (bump kind)
     @echo "Pushing release v$(nu scripts/version.nu) to Gitea (nexus-lab instance)…"
-    git push --follow-tags gitea-nexus-lab main
+    git push --follow-tags gitea-nexus-lab "$(git branch --show-current)"
     @echo "✅ Release v$(nu scripts/version.nu) live on Gitea (nexus-lab instance)."
 
 # Bump, commit, tag, then push to every remote (continues on failure)
@@ -274,7 +274,7 @@ release-all kind: (bump kind)
     failed=""
     for r in {{ REMOTES }}; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git push --follow-tags "$r" main || failed="$failed $r"
+        git push --follow-tags "$r" "$(git branch --show-current)" || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Release failed to push to:$failed"; exit 1; fi
     echo "✅ Release v$(nu scripts/version.nu) pushed to every configured remote"
@@ -285,7 +285,7 @@ push-release-all: check
     failed=""
     for r in {{ REMOTES }}; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git push --follow-tags "$r" main || failed="$failed $r"
+        git push --follow-tags "$r" "$(git branch --show-current)" || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Failed to push to:$failed"; exit 1; fi
     echo "✅ Latest commit and tags pushed to every configured remote"
@@ -296,7 +296,7 @@ push-release-all-force: check
     failed=""
     for r in {{ REMOTES }}; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git push --force --follow-tags "$r" main || failed="$failed $r"
+        git push --force --follow-tags "$r" "$(git branch --show-current)" || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Failed to force-push to:$failed"; exit 1; fi
     echo "✅ Latest commit and tags force-pushed to every configured remote"
@@ -315,19 +315,19 @@ release-retrigger version:
 
 # Force-sync Gitea Microlab with GitHub
 sync-gitea-microlab:
-    git push gitea-microlab main --force
+    git push gitea-microlab "$(git branch --show-current)" --force
     git push gitea-microlab --tags --force
     @echo "✅ Gitea Microlab force-synced with GitHub."
 
 # Force-sync Gitea Starscream with GitHub
 sync-gitea-starscream:
-    git push gitea-starscream main --force
+    git push gitea-starscream "$(git branch --show-current)" --force
     git push gitea-starscream --tags --force
     @echo "✅ Gitea Starscream force-synced with GitHub."
 
 # Force-sync Gitea (nexus-lab instance) with GitHub
 sync-gitea-nexus-lab:
-    git push gitea-nexus-lab main --force
+    git push gitea-nexus-lab "$(git branch --show-current)" --force
     git push gitea-nexus-lab --tags --force
     @echo "✅ Gitea (nexus-lab instance) force-synced with GitHub."
 
@@ -337,7 +337,7 @@ sync-all-gitea:
     failed=""
     for r in gitea-microlab gitea-starscream gitea-nexus-lab; do
         git remote get-url "$r" >/dev/null 2>&1 || { echo "↷ skipping $r (not configured)"; continue; }
-        git push "$r" main --force && git push "$r" --tags --force || failed="$failed $r"
+        git push "$r" "$(git branch --show-current)" --force && git push "$r" --tags --force || failed="$failed $r"
     done
     if [ -n "$failed" ]; then echo "⚠️  Failed to sync:$failed"; exit 1; fi
     echo "✅ Every configured Gitea instance force-synced with GitHub."
