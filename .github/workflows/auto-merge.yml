@@ -75,11 +75,16 @@ jobs:
         id: merge
         if: steps.kind.outputs.automerge == 'true'
         run: |
-          gh pr review "$NUMBER" --repo "$REPO" --approve || true
-          gh pr merge "$NUMBER" --repo "$REPO" --squash --delete-branch
+          # GITHUB_TOKEN cannot merge a PR that changes .github/workflows/* (it lacks the
+          # `workflows` permission), and cannot approve PRs. Use the GH_PAT secret
+          # (classic PAT with `repo` + `workflow`) when set; no approval is required.
+          if ! gh pr merge "$NUMBER" --repo "$REPO" --squash --delete-branch; then
+            echo "::error::Merge failed. Workflow-file PRs need a GH_PAT secret (repo + workflow scopes)."
+            exit 1
+          fi
           echo "merged=true" >> "$GITHUB_OUTPUT"
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ steps.pr.outputs.number }}
 
