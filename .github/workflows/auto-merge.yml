@@ -1,17 +1,21 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Auto-merge library updates — after CI is green, then ship a patch
 # ──────────────────────────────────────────────────────────────────────────────
-# Dependabot keeps the GitHub Actions up to date (see dependabot.yml). npm dependencies
-# are updated by the nightly job (deps-update.yml), which commits straight to main.
+# Dependabot keeps the GitHub Actions in .github/workflows up to date (see dependabot.yml).
+# npm dependencies are updated by the nightly job (deps-update.yml), which commits straight
+# to main; the actions in .gitea/workflows by gitea-actions.yml.
 #
 # This workflow merges a Dependabot PR only AFTER the CI workflow finished successfully
 # for that exact commit (this repo has no branch protection, so `gh pr merge --auto` would
 # merge immediately). Patch and minor updates merge on their own; a major update, or one
 # that cannot be classified, waits for a person (scripts/ci/update_type.nu).
 #
-# After a merge it starts the nightly workflow with release=true: the merge commit is a
-# `ci(deps)` library update, so a new patch version is built, tagged and published
-# (scripts/ci/unreleased.nu, release.yml).
+# Action bumps always change .github/workflows/*, which GITHUB_TOKEN may not merge: set the
+# GH_PAT secret (classic PAT, `repo` + `workflow` scopes), or every merge fails loudly.
+#
+# After a merge it starts the nightly workflow with release=true. A `ci(deps)` action bump
+# alone is not released (scripts/ci/unreleased.nu); the nightly ships a patch only when a
+# runtime dependency moved or feat/fix/perf commits are waiting.
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: Auto-merge library updates
@@ -96,8 +100,8 @@ jobs:
           NUMBER: ${{ steps.pr.outputs.number }}
           KIND: ${{ steps.kind.outputs.type }}
 
-      # Build, tag and publish a patch for the library update that just landed.
-      - name: Release a patch
+      # Starts the nightly: it ships a patch when there is something releasable.
+      - name: Run the nightly
         if: steps.merge.outputs.merged == 'true'
         run: gh workflow run deps-update.yml --repo "$REPO" -f release=true
         env:
