@@ -3,6 +3,35 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.3.5](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.5) — 2026-10-30
+
+
+### 🐛 Fixes
+
+- Atomic config saves, warn on an invalid config file, never crash on a failed save or a throwing compaction, reset stale footer savings ([`3241a75`](https://github.com/sorinirimies/pi-context-diet/commit/3241a7506d6831b06ea9bbd2a4a3ade83636b7ca))
+
+### 🔧 Build & CI
+
+- Ignore commits already released via the other host's parallel nightly (no phantom patch release) ([`ceae857`](https://github.com/sorinirimies/pi-context-diet/commit/ceae857af5777ac8ec019bbb92262745bab6a240))
+- **deps:** Bump taiki-e/install-action from 2.87.26 to 2.87.29 (#3) ([`f69343c`](https://github.com/sorinirimies/pi-context-diet/commit/f69343c054224b1b047780fd59e23eaccb0ef84d))
+- **deps:** Bump hustcer/setup-nu from 3.28 to 3.29 (#4) ([`30b9657`](https://github.com/sorinirimies/pi-context-diet/commit/30b965743ff895263ea332d64e7a66cf814d421d))
+- **deps:** Bump taiki-e/install-action from 2.87.29 to 2.87.31 (#5) ([`a944a42`](https://github.com/sorinirimies/pi-context-diet/commit/a944a42c9112ad9e14d099e3d1e1c30e55b4f9ac))
+- Auto-merge uses GH_PAT for workflow-file PRs, drop unsupported approve ([`9120ca2`](https://github.com/sorinirimies/pi-context-diet/commit/9120ca220ed58c086038eebdce5b11a3e4df83f5))
+
+### 🧹 Chores
+
+- **justfile:** Push/pull current branch instead of hardcoded main ([`9ceecd1`](https://github.com/sorinirimies/pi-context-diet/commit/9ceecd1f3294118953575afa53a55bf0576555c9))
+- Nightly dev-tooling lockfile update 2026-10-15 (not released) ([`123255c`](https://github.com/sorinirimies/pi-context-diet/commit/123255c3631be03f9514f203dedb5db489262648))
+- Nightly dev-tooling lockfile update 2026-10-15 (not released) ([`294a6e8`](https://github.com/sorinirimies/pi-context-diet/commit/294a6e88fbd392c42f1e0d2311cb3a51f44cafac))
+- Nightly dev-tooling lockfile update 2026-10-16 (not released) ([`8a1b108`](https://github.com/sorinirimies/pi-context-diet/commit/8a1b108042942eba4a307d80c270f78efc4aee2f))
+- Nightly dev-tooling lockfile update 2026-10-20 (not released) ([`c557ffb`](https://github.com/sorinirimies/pi-context-diet/commit/c557ffb1586181b61bead539547e9cdf2ed40f9f))
+- Nightly dev-tooling lockfile update 2026-10-21 (not released) ([`b2d1755`](https://github.com/sorinirimies/pi-context-diet/commit/b2d17559978f0f4b86401b82319bfb39ba18e5b0))
+- Nightly dev-tooling lockfile update 2026-10-22 (not released) ([`07ac11c`](https://github.com/sorinirimies/pi-context-diet/commit/07ac11c4338a2e62ccc5cf1b9cefafdf61988a16))
+- Nightly dev-tooling lockfile update 2026-10-23 (not released) ([`7d027f9`](https://github.com/sorinirimies/pi-context-diet/commit/7d027f9b963f1110703f0df442f36915c08585ae))
+- Nightly dev-tooling lockfile update 2026-10-27 (not released) ([`7539a22`](https://github.com/sorinirimies/pi-context-diet/commit/7539a223cd028f5aabda6cd843687bc122f80998))
+- Nightly dev-tooling lockfile update 2026-10-29 (not released) ([`21f79df`](https://github.com/sorinirimies/pi-context-diet/commit/21f79dfa8926e5ff1da5448ea261bae3aa2ca153))
+- Nightly dev-tooling lockfile update 2026-10-30 (not released) ([`c3842de`](https://github.com/sorinirimies/pi-context-diet/commit/c3842deafc273e82e93827d7646d6b1a88e57df7))
+- Ignore the .codegraph index ([`f11c91d`](https://github.com/sorinirimies/pi-context-diet/commit/f11c91daaaf38752bca5b9de587a5f8f7e4acdd5))
 ## [0.3.4](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.4) — 2026-10-14
 
 

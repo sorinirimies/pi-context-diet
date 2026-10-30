@@ -1,6 +1,6 @@
 {
   "name": "pi-context-diet",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Pi extension that cuts token spend on long sessions: elides stale tool results from the context, but only when the prompt cache has already gone cold, so it costs nothing. Zero prompt tokens.",
   "keywords": ["pi-package", "pi-extension", "tokens", "context", "cache", "cost", "compaction"],
   "license": "MIT",
