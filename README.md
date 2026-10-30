@@ -101,7 +101,7 @@ Tab-completion works for all of these. Unknown input prints usage instead of fai
 
 ## Config
 
-`~/.pi/agent/context-diet.json` (written by the commands, editable by hand; invalid values fall back to defaults):
+`~/.pi/agent/context-diet.json` (written by the commands, atomically, editable by hand; invalid values fall back to defaults, and a file that is not valid JSON is reported with a warning at session start):
 
 ```json
 {

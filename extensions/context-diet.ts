@@ -28,9 +28,11 @@
  *   /context-diet ttl <minutes>   how long the prompt cache lives (5 for Anthropic, 60 for extended)
  *   /context-diet mode <cold|always>
  *   /context-diet args <on|off>   also elide stale write / edit arguments
+ *   /context-diet show            list what is elided now and what the next cold start would take
+ *   /context-diet compact <on|off|now>  compact an idle, big session with pi's own summariser (opt-in)
  */
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -145,17 +147,45 @@ export function resolveAgentDir(env: Record<string, string | undefined>, home: s
 
 const configPath = () => join(resolveAgentDir(process.env, homedir()), "context-diet.json");
 
-export async function loadConfig(): Promise<DietConfig> {
+/**
+ * The config, plus a `problem` when the file exists but cannot be used (unreadable or not JSON). A missing file is
+ * not a problem: it just means the defaults.
+ */
+export async function readConfig(): Promise<{ config: DietConfig; problem?: string }> {
+	let raw: string;
 	try {
-		return sanitizeConfig(JSON.parse(await readFile(configPath(), "utf8")));
+		raw = await readFile(configPath(), "utf8");
+	} catch (e) {
+		const code = (e as { code?: string } | null)?.code;
+		return code === "ENOENT" ? { config: sanitizeConfig({}) } : { config: sanitizeConfig({}), problem: `cannot read ${configPath()} (${code ?? "error"})` };
+	}
+	try {
+		return { config: sanitizeConfig(JSON.parse(raw)) };
 	} catch {
-		return sanitizeConfig({});
+		return { config: sanitizeConfig({}), problem: `${configPath()} is not valid JSON` };
 	}
 }
 
+export async function loadConfig(): Promise<DietConfig> {
+	return (await readConfig()).config;
+}
+
+/** Atomic: written to a temp file and renamed, so a crash or a second pi session never leaves a half-written file. */
 export async function saveConfig(config: DietConfig): Promise<void> {
 	await mkdir(resolveAgentDir(process.env, homedir()), { recursive: true });
-	await writeFile(configPath(), JSON.stringify(config, null, 2) + "\n", "utf8");
+	const target = configPath();
+	const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+	try {
+		await writeFile(tmp, JSON.stringify(config, null, 2) + "\n", "utf8");
+		await rename(tmp, target);
+	} catch (e) {
+		try {
+			await rm(tmp, { force: true });
+		} catch {
+			/* the original error matters more */
+		}
+		throw e;
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -997,7 +1027,8 @@ export default function contextDiet(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		config = await loadConfig();
+		const loaded = await readConfig();
+		config = loaded.config;
 		const state = restoreState(ctx.sessionManager?.getEntries?.() ?? []);
 		elided = state.ids;
 		elidedArgs = state.argIds;
@@ -1014,6 +1045,9 @@ export default function contextDiet(pi: ExtensionAPI) {
 		compactTimer = undefined;
 		showStatus(ctx);
 		try {
+			if (loaded.problem && ctx.hasUI) {
+				ctx.ui.notify(`context-diet: ${loaded.problem}; using the defaults (a /context-diet setting command will overwrite it)`, "warning");
+			}
 			if (config.enabled && config.mode === "always" && ctx.hasUI) {
 				ctx.ui.notify("context-diet: mode is 'always', which rewrites the prompt cache on every pass. Use it only without prompt caching; switch back with /context-diet mode cold", "warning");
 			}
@@ -1039,6 +1073,10 @@ export default function contextDiet(pi: ExtensionAPI) {
 			const result = applyElision(messages, elided, { argIds: elidedArgs, preview: { tail: config.stubTailLines, errors: config.stubErrorLines } });
 			pendingChars = charsOfMessages(result.messages);
 			if (result.count + result.argCount === 0) {
+				// Nothing elided is in this request any more (e.g. after a compaction): the footer must not keep old savings.
+				stats.lastCount = 0;
+				stats.lastArgCount = 0;
+				stats.lastChars = 0;
 				showStatus(ctx);
 				return undefined;
 			}
@@ -1104,6 +1142,16 @@ export default function contextDiet(pi: ExtensionAPI) {
 	const startCompaction = (ctx: ExtensionContext, why: string, announce: boolean = ctx.hasUI) => {
 		compactInFlight = true;
 		if (announce) ctx.ui.notify(`context-diet: compacting the session (${why})`, "info");
+		try {
+			startCompactionUnguarded(ctx, announce);
+		} catch (error) {
+			// A synchronous throw would otherwise leave compactInFlight stuck and block every later compaction.
+			compactInFlight = false;
+			if (announce) ctx.ui.notify(`context-diet: compaction failed: ${(error as Error)?.message ?? String(error)}`, "warning");
+		}
+	};
+
+	const startCompactionUnguarded = (ctx: ExtensionContext, announce: boolean) => {
 		ctx.compact({
 			customInstructions: COMPACT_INSTRUCTIONS,
 			onComplete: () => {
@@ -1173,8 +1221,13 @@ export default function contextDiet(pi: ExtensionAPI) {
 		getArgumentCompletions: (prefix: string) => completions(prefix),
 		handler: async (args, ctx) => {
 			const cmd = parseCommand(args);
+			// The setting applies to this session either way; a failed save only means it is not remembered.
 			const persist = async () => {
-				await saveConfig(config);
+				try {
+					await saveConfig(config);
+				} catch (error) {
+					ctx.ui.notify(`context-diet: could not save the setting (${(error as Error)?.message ?? String(error)}); it applies to this session only`, "warning");
+				}
 				showStatus(ctx);
 			};
 			switch (cmd.kind) {

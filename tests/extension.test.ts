@@ -768,4 +768,65 @@ describe("extension wiring", () => {
 		expect(typeof t.command.getArgumentCompletions).toBe("function");
 		expect(t.command.getArgumentCompletions("mo")![0].label).toBe("mode");
 	});
+
+	// -- robustness ------------------------------------------------------------------------------------------
+
+	it("warns at session start when the config file is not valid JSON, and uses the defaults", async () => {
+		writeFileSync(join(dir, "context-diet.json"), "{ not json");
+		const t = await boot();
+		expect(t.notes.at(-1)).toContain("is not valid JSON; using the defaults");
+		await t.command.handler("", t.ctx);
+		expect(t.notes.at(-1)).toContain("mode cold · keep last 20 turns");
+		const quiet = await boot({ hasUI: false });
+		expect(quiet.notes).toEqual([]);
+	});
+
+	it("a missing config file is not a problem: no warning", async () => {
+		const t = await boot();
+		expect(t.notes).toEqual([]);
+	});
+
+	it("a setting that cannot be saved still applies to this session, with a warning instead of a crash", async () => {
+		const t = await boot();
+		const blocked = join(dir, "blocked");
+		writeFileSync(blocked, "a file, not a directory");
+		process.env.PI_CODING_AGENT_DIR = join(blocked, "agent"); // mkdir fails: a file is in the way
+		await t.command.handler("keep 7", t.ctx);
+		expect(t.notes.some((n) => n.includes("could not save the setting"))).toBe(true);
+		expect(t.notes.at(-1)).toContain("keeping the results of the last 7");
+		await t.command.handler("", t.ctx);
+		expect(t.notes.at(-1)).toContain("keep last 7 turns");
+	});
+
+	it("a compaction that throws synchronously is reported and does not block later ones", async () => {
+		const t = await boot({ config: compactConfig, tokens: 150_000 });
+		let calls = 0;
+		t.ctx.compact = () => {
+			calls++;
+			if (calls === 1) throw new Error("not now");
+		};
+		await t.command.handler("compact now", t.ctx);
+		expect(t.notes.at(-1)).toContain("compaction failed: not now");
+		await t.command.handler("compact now", t.ctx);
+		expect(calls).toBe(2);
+		expect(t.notes.at(-1)).toContain("compacting the session (requested)");
+		// a non-Error throw is reported too
+		const u = await boot({ config: compactConfig, tokens: 150_000 });
+		u.ctx.compact = () => {
+			throw "weird";
+		};
+		await u.command.handler("compact now", u.ctx);
+		expect(u.notes.at(-1)).toContain("compaction failed: weird");
+	});
+
+	it("the footer drops old savings once nothing elided is in the request any more (after a compaction)", async () => {
+		const t = await boot({ config: { keepTurns: 5 } });
+		t.request(longConvo(10 * MIN));
+		expect(t.statuses.at(-1)).toContain("/req");
+		clock += MIN;
+		expect(t.request(convo(3, { endTs: clock - 1000 }))).toBeUndefined(); // the history was replaced by a summary
+		expect(t.statuses.at(-1)).not.toContain("/req");
+		await t.command.handler("", t.ctx);
+		expect(t.notes.at(-1)).toContain("this session: 0 results elided");
+	});
 });
