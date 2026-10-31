@@ -3,6 +3,20 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.3.7](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.7) — 2026-10-31
+
+
+### 🐛 Fixes
+
+- The chars-per-token calibration ignores non-finite usage (one Infinity made it NaN for the rest of the session) ([`a2a99e3`](https://github.com/sorinirimies/pi-context-diet/commit/a2a99e3d38f4baaa0c62f13e867d514b8bb4025e))
+
+### 🧪 Tests
+
+- Seeded fuzz tests (FUZZ_ITERS / FUZZ_SEED; a failure prints the seed that reproduces it) ([`628ce7a`](https://github.com/sorinirimies/pi-context-diet/commit/628ce7afd1b014d349aee94c7c3ff3568e1fdf62))
+
+### 🔧 Build & CI
+
+- Fuzz and Security workflows on GitHub and Gitea ([`931f3da`](https://github.com/sorinirimies/pi-context-diet/commit/931f3da33902170d5a62aa7950eced7364f9308d))
 ## [0.3.6](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.6) — 2026-10-31
 
 
