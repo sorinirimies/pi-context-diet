@@ -23,7 +23,8 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "overrides": {
-    "undici": "8.12.3"
+    "undici": "8.12.3",
+    "minimatch": "11.0.3"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^1.4.0",
