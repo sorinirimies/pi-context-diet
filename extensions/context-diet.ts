@@ -561,7 +561,8 @@ export class Calibrator {
 	}
 
 	add(chars: number, tokens: number): void {
-		if (chars > 0 && tokens > 0) this.points.push([chars, tokens]);
+		// Finite only: one Infinity or NaN from a provider would poison every later estimate.
+		if (chars > 0 && tokens > 0 && Number.isFinite(chars) && Number.isFinite(tokens)) this.points.push([chars, tokens]);
 		if (this.points.length > 200) this.points.shift();
 	}
 
@@ -581,7 +582,9 @@ export class Calibrator {
 			sxx += (x - mx) ** 2;
 			sxy += (x - mx) * (y - my);
 		}
-		return sxx === 0 || sxy <= 0 ? undefined : sxx / sxy;
+		const slope = sxx / sxy;
+		// Huge values can overflow the sums: a ratio that is not a finite positive number is unusable.
+		return sxx === 0 || sxy <= 0 || !Number.isFinite(slope) || slope <= 0 ? undefined : slope;
 	}
 
 	/** True once the ratio comes from the data (enough samples, and tokens that actually grow with characters). */
