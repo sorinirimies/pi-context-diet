@@ -183,6 +183,8 @@ just demo             # try it yourself in a real pi: ask it to "Survey the proj
 | Workflow | When | What |
 |---|---|---|
 | **CI** | push / PR | quality gate on Linux; tests on macOS and Windows |
+| **Fuzz** | nightly (GitHub 04:00 UTC, Gitea 04:30), and when the extension changes | seeded randomised robustness tests (`tests/fuzz.test.ts`), 200 000 runs per property; a failure prints the seed that reproduces it |
+| **Security** | nightly (GitHub 03:00 UTC, Gitea 03:30), and when dependencies change | `bun audit`: fails on any known vulnerability |
 | **Auto-merge library updates** | CI finished on a Dependabot PR | **patch and minor** updates (GitHub Actions) are merged automatically, but only **after CI is green** on that exact commit; a **major** update waits for you. Needs the `GH_PAT` secret: action bumps change `.github/workflows/*`, which `GITHUB_TOKEN` may not merge |
 | **Gitea Actions Update** | Mondays 03:15 UTC | Gitea has no Dependabot: moves the sha pins in `.gitea/workflows` to the newest release of the **same major** and commits `ci(deps)`; a new major is only reported |
 | **Nightly Dependency Update** | every night (GitHub 02:00 UTC) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
