@@ -3,6 +3,21 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.3.6](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.6) — 2026-10-31
+
+
+### 🔧 Build & CI
+
+- **deps-dev:** Pin undici 8.12.3 via overrides ([`2ab06a9`](https://github.com/sorinirimies/pi-context-diet/commit/2ab06a960aa8c594ceaa232a9bcd597cc516564a))
+- Keep .gitea workflow actions up to date; auto-merge needs GH_PAT for action bumps ([`ff74897`](https://github.com/sorinirimies/pi-context-diet/commit/ff748977c52014d7a1418a8d966a5cc8dc747fde))
+- **deps:** Bump Gitea workflow actions ([`b817700`](https://github.com/sorinirimies/pi-context-diet/commit/b81770046f980089708c05cb08756ae2cbf809fe))
+- One nightly (GitHub); Gitea mirrors GitHub's main and tags hourly ([`a1982a7`](https://github.com/sorinirimies/pi-context-diet/commit/a1982a7d5876f194ab10a7147f0a0d9545c7b629))
+
+### 🧹 Chores
+
+- Nightly dev-tooling lockfile update 2026-10-31 (not released) ([`273c0bd`](https://github.com/sorinirimies/pi-context-diet/commit/273c0bd63cedb6ec3c398ed49d3bf70bf21a9566))
+- Nightly dev-tooling lockfile update 2026-10-31 (not released) ([`3bbaf76`](https://github.com/sorinirimies/pi-context-diet/commit/3bbaf768bf62f316974c3043337fe8ea35bad21a))
+- Merge Gitea's main (both hosts ran their own nightly) ([`73e8e72`](https://github.com/sorinirimies/pi-context-diet/commit/73e8e72d781975dffa6216ec7592485aecb3b15c))
 ## [0.3.5](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.5) — 2026-10-30
 
 
