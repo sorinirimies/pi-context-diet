@@ -8,7 +8,7 @@
 # artifact actions stay pinned on purpose.
 #
 # GITHUB_TOKEN may push this: it only changes .gitea/, never .github/workflows. The
-# commit reaches Gitea with the next push to both remotes, where Gitea's CI runs it.
+# commit reaches Gitea through its hourly mirror job, where Gitea's CI runs it.
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: Gitea Actions Update

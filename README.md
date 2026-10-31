@@ -185,7 +185,8 @@ just demo             # try it yourself in a real pi: ask it to "Survey the proj
 | **CI** | push / PR | quality gate on Linux; tests on macOS and Windows |
 | **Auto-merge library updates** | CI finished on a Dependabot PR | **patch and minor** updates (GitHub Actions) are merged automatically, but only **after CI is green** on that exact commit; a **major** update waits for you. Needs the `GH_PAT` secret: action bumps change `.github/workflows/*`, which `GITHUB_TOKEN` may not merge |
 | **Gitea Actions Update** | Mondays 03:15 UTC | Gitea has no Dependabot: moves the sha pins in `.gitea/workflows` to the newest release of the **same major** and commits `ci(deps)`; a new major is only reported |
-| **Nightly Dependency Update** | every night (GitHub 02:00 UTC, Gitea 02:30) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
+| **Nightly Dependency Update** | every night (GitHub 02:00 UTC) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
+| **Mirror GitHub** (Gitea) | hourly | Gitea has no nightly of its own: fast-forwards its `main` to GitHub's and pushes the new tags (starting Gitea's release for each), so the hosts never diverge; fails loudly if they did |
 | **Release** | tag `vX.Y.Z` | validates the tag against `package.json`, runs the gate, `npm publish` (idempotent, with provenance), creates the release |
 
 So library updates need no human: they are merged once CI passes, built, versioned and published as a patch. A downgrade, a failing check, or a major update stops the chain and waits for review.

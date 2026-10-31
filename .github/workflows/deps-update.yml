@@ -12,15 +12,15 @@ name: Nightly Dependency Update
 #   * feat / fix / perf commits are waiting.
 # No changes => nothing is committed, tagged or released.
 #
-# This host runs on its own: no mirroring to Gitea (it has its own nightly). Publishing
-# to npm is idempotent, so a version released by both hosts is published once.
+# The only nightly: Gitea has none and copies main + tags from here (.gitea/workflows/
+# mirror.yml, hourly), so the two hosts never diverge.
 #
 # Secrets: NPM_TOKEN is used by release.yml. GH_PAT (optional): lets the tag push itself
 # trigger release.yml and bypass branch protection; without it the release is dispatched.
 
 on:
   schedule:
-    - cron: "0 2 * * *" # 02:00 UTC (Gitea runs at 02:30)
+    - cron: "0 2 * * *" # 02:00 UTC (Gitea mirrors it within the hour)
   workflow_dispatch:
     inputs:
       release:
