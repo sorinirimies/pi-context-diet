@@ -4,6 +4,8 @@
 [![npm downloads](https://img.shields.io/npm/dm/pi-context-diet.svg)](https://www.npmjs.com/package/pi-context-diet)
 [![CI](https://github.com/sorinirimies/pi-context-diet/actions/workflows/ci.yml/badge.svg)](https://github.com/sorinirimies/pi-context-diet/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Audit](https://github.com/sorinirimies/pi-context-diet/actions/workflows/security.yml/badge.svg)](https://github.com/sorinirimies/pi-context-diet/actions/workflows/security.yml)
+[![Fuzz](https://github.com/sorinirimies/pi-context-diet/actions/workflows/fuzz.yml/badge.svg)](https://github.com/sorinirimies/pi-context-diet/actions/workflows/fuzz.yml)
 
 A [pi](https://github.com/earendil-works/pi-coding-agent) extension that cuts token spend on long sessions by **eliding stale tool results (and stale `write`/`edit` content) from the context, but only when the prompt cache has already gone cold**, so it costs nothing and never fights the cache.
 
