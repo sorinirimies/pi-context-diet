@@ -40,11 +40,11 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c # v3
         with:
-          version: "0.111.0"
+          version: "0.116.1"
 
       - name: Install git-cliff
         continue-on-error: true
-        uses: taiki-e/install-action@1919c4a95903d2c33e4a221102edca87309fc14b # v2
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
         with:
           tool: git-cliff
 
@@ -66,14 +66,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create Gitea release
+        run: nu scripts/ci/gitea_release.nu "$TAG" --api "$API"
         env:
           TAG: ${{ steps.tag.outputs.tag }}
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
-          TOKEN: ${{ secrets.GITEA_TOKEN || github.token }}
-        run: |
-          (command -v git-cliff >/dev/null && git-cliff --latest --strip header > notes.md) || echo "Release ${TAG}" > notes.md
-          BODY=$(python3 -c 'import json,sys; print(json.dumps({"tag_name": sys.argv[1], "name": sys.argv[1], "body": open("notes.md").read()}))' "$TAG")
-          curl -s -X POST "$API/releases" \
-            -H "Authorization: token $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" || echo "⚠️  Release creation failed (it may already exist)."
+          GITEA_TOKEN: ${{ secrets.GITEA_TOKEN || github.token }}

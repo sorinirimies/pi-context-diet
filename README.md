@@ -183,10 +183,10 @@ CI scripts are [nushell](https://www.nushell.sh) (`scripts/`), the same ones loc
 
 ## Demo recordings
 
-The GIFs above live in [`examples/vhs/generated/`](examples/vhs/generated) and are stored with **Git LFS** (`git lfs install` once). They are recorded with [VHS](https://github.com/charmbracelet/vhs) from a **real pi** that loads only this extension, on **synthetic** data (`examples/vhs/fixture.sh`), never from real files, sessions or credentials. The agent is a scripted mock model (`examples/vhs/mock-llm.ts`) that reports what context it received.
+The GIFs above live in [`examples/vhs/generated/`](examples/vhs/generated) and are stored with **Git LFS** (`git lfs install` once). They are recorded with [VHS](https://github.com/charmbracelet/vhs) from a **real pi** that loads only this extension, on **synthetic** data (`examples/vhs/fixture.nu`), never from real files, sessions or credentials. The agent is a scripted mock model (`examples/vhs/mock-llm.ts`) that reports what context it received.
 
 ```sh
-just vhs-all          # every tape (examples/vhs/*.tape): needs vhs, ttyd, ffmpeg, pi, bun, python3
+just vhs-all          # every tape (examples/vhs/*.tape): needs vhs, ttyd, ffmpeg, pi, bun, nu
 just vhs-tape overview  # one tape
 just vhs-list         # list the tapes
 just demo             # try it yourself in a real pi: ask it to "Survey the project"

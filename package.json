@@ -17,6 +17,8 @@
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
+    "audit": "bun audit",
+    "fuzz": "nu scripts/ci/fuzz.nu",
     "check": "nu scripts/ci/quality_gate.nu"
   },
   "peerDependencies": {

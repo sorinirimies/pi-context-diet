@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # ──────────────────────────────────────────────────────────────────────────────
-# First release: tag the version already in package.json (no bump)
+# pi-context-diet — First release: tag the version already in package.json (no bump)
 # ──────────────────────────────────────────────────────────────────────────────
 # Refuses a dirty tree or an existing tag (local or on origin); regenerates the
 # changelog for the tag, commits it if it changed, tags. Pushing is the caller's.

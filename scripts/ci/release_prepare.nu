@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # ──────────────────────────────────────────────────────────────────────────────
-# Which tag a Release run publishes (and cut it first when asked)
+# pi-context-diet — Which tag a Release run publishes (and cut it first when asked)
 # ──────────────────────────────────────────────────────────────────────────────
 #   push of a vX.Y.Z tag             → publish that tag
 #   dispatch with tag=vX.Y.Z         → publish that existing tag again (idempotent)

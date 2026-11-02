@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # ──────────────────────────────────────────────────────────────────────────────
-# Step outputs for workflows
+# pi-context-diet — Step outputs for workflows
 # ──────────────────────────────────────────────────────────────────────────────
 # Scripts hand values to later steps as `key=value` lines appended to $GITHUB_OUTPUT
 # (GitHub and Gitea both set it). Without it the lines are printed, for local runs.

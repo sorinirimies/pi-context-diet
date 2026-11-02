@@ -39,7 +39,7 @@ jobs:
       - name: Install nushell
         uses: hustcer/setup-nu@eacad52a4634c4f8d17a94916f93be6856861b9c # v3
         with:
-          version: "0.111.0"
+          version: "0.116.1"
 
       - name: Bump pins within their major
         id: bump
@@ -47,12 +47,6 @@ jobs:
 
       - name: Commit and push
         if: steps.bump.outputs.changed == 'true'
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .gitea/workflows
-          git commit -m "ci(deps): bump Gitea workflow actions" -m "$SUMMARY"
-          git pull --rebase origin main
-          git push origin HEAD:main
+        run: 'nu scripts/ci/commit_push.nu "ci(deps): bump Gitea workflow actions" .gitea/workflows --body "$SUMMARY"'
         env:
           SUMMARY: ${{ steps.bump.outputs.summary }}
