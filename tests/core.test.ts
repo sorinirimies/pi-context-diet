@@ -6,6 +6,9 @@ import {
 } from "../extensions/context-diet.ts";
 import { big, convo, deepFreeze, isStub, resetIds, resultsOf, text, turn, user } from "./helpers.ts";
 import { join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { SAVINGS_LOG, appendSaving, savingLine, savingsLogPath } from "../extensions/context-diet.ts";
 
 const NOW = 1_800_000_000_000;
 const MIN = 60_000;
@@ -265,7 +268,7 @@ describe("sanitizeConfig", () => {
 		for (const junk of [undefined, null, 5, "x", [], true]) expect(sanitizeConfig(junk)).toEqual(DEFAULT_CONFIG);
 	});
 	it("keeps valid values", () => {
-		const all: DietConfig = { enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false, stubTailLines: 5, stubErrorLines: 2, elideArgs: false, autoProtect: false, recoveryThreshold: 0.5, warmArbitration: false, expectedTurns: 12, stopWarmingShare: 0.4, compact: true, compactAboveTokens: 90_000 };
+		const all: DietConfig = { enabled: false, mode: "always", keepTurns: 7, minChars: 800, cacheTtlMinutes: 60, keepErrors: false, neverElide: ["read"], showStatus: false, stubTailLines: 5, stubErrorLines: 2, elideArgs: false, autoProtect: false, recoveryThreshold: 0.5, warmArbitration: false, expectedTurns: 12, stopWarmingShare: 0.4, compact: true, compactAboveTokens: 90_000, logSavings: false };
 		expect(sanitizeConfig(all)).toEqual(all);
 	});
 	it("clamps numbers and rejects the wrong types", () => {
@@ -587,7 +590,8 @@ describe("config: warming and compaction settings", () => {
 		expect(sanitizeConfig({ expectedTurns: 9999, stopWarmingShare: 5, compactAboveTokens: 1 })).toMatchObject({ expectedTurns: 500, stopWarmingShare: 0.9, compactAboveTokens: 20_000 });
 		expect(sanitizeConfig({ expectedTurns: 0, stopWarmingShare: 0, compactAboveTokens: 9e9 })).toMatchObject({ expectedTurns: 1, stopWarmingShare: 0.05, compactAboveTokens: 2_000_000 });
 		expect(sanitizeConfig({ stopWarmingShare: NaN, expectedTurns: "x", compact: "yes", warmArbitration: 1 })).toMatchObject({ stopWarmingShare: 0.2, expectedTurns: 30, compact: false, warmArbitration: true });
-		expect(DEFAULT_CONFIG).toMatchObject({ warmArbitration: true, compact: false, compactAboveTokens: 150_000 });
+		expect(DEFAULT_CONFIG).toMatchObject({ warmArbitration: true, compact: false, compactAboveTokens: 150_000, logSavings: true });
+		expect(sanitizeConfig({ logSavings: "no" }).logSavings).toBe(true);
 	});
 });
 
@@ -744,5 +748,34 @@ describe("shouldCompact", () => {
 		expect(COMPACT_INSTRUCTIONS).toContain("file paths");
 		expect(COMPACT_INSTRUCTIONS).toContain("open tasks");
 		expect(COMPACT_INSTRUCTIONS).toContain("Drop: raw tool output");
+	});
+});
+
+describe("savings log", () => {
+	const record = { ts: "2026-01-02T03:04:05.000Z", session: "s", cwd: "/w", tokens: 10, chars: 30, results: 2, args: 1 };
+
+	it("lives next to the config in pi's agent dir", () => {
+		expect(savingsLogPath({ PI_CODING_AGENT_DIR: "/a" }, "/h")).toBe(join("/a", SAVINGS_LOG));
+		expect(savingsLogPath({}, "/h")).toBe(join("/h", ".pi", "agent", SAVINGS_LOG));
+	});
+
+	it("is one JSON object per line", () => {
+		expect(savingLine(record)).toBe(JSON.stringify(record) + "\n");
+	});
+
+	it("appends, creating the directory", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-diet-log-"));
+		const path = join(dir, "nested", SAVINGS_LOG);
+		expect(await appendSaving(record, path)).toBe(true);
+		expect(await appendSaving({ ...record, tokens: 20 }, path)).toBe(true);
+		expect(readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l).tokens)).toEqual([10, 20]);
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("never throws when the log cannot be written", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-diet-log-"));
+		writeFileSync(join(dir, "file"), "");
+		expect(await appendSaving(record, join(dir, "file", SAVINGS_LOG))).toBe(false);
+		rmSync(dir, { recursive: true, force: true });
 	});
 });

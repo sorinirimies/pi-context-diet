@@ -124,7 +124,8 @@ Tab-completion works for all of these. Unknown input prints usage instead of fai
   "expectedTurns": 30,
   "stopWarmingShare": 0.2,
   "compact": false,
-  "compactAboveTokens": 150000
+  "compactAboveTokens": 150000,
+  "logSavings": true
 }
 ```
 
@@ -136,7 +137,18 @@ Tab-completion works for all of these. Unknown input prints usage instead of fai
 - `autoProtect` / `recoveryThreshold`: protect a tool for the session when more than this share of its elided results was re-fetched.
 - `warmArbitration`: let the plugin stop pi's idle cache warming when eliding is cheaper. `expectedTurns` is how many more turns a session is assumed to run (the longer, the more eliding is worth); `stopWarmingShare` is the stale share of the context at which warming stops when model prices are unknown.
 - `compact` / `compactAboveTokens`: opt-in compaction of an idle session above this many tokens.
+- `logSavings`: append what each request saved to `~/.pi/agent/context-diet-savings.jsonl` (see [Savings log](#savings-log)).
 - Images and any result that is not plain text are never touched.
+
+## Savings log
+
+The footer counts savings for the current session only. To keep a record, every request that had something elided adds one line to `~/.pi/agent/context-diet-savings.jsonl` (next to the config; `PI_CODING_AGENT_DIR` moves both):
+
+```json
+{"ts":"2026-01-02T09:15:00.000Z","session":"…","cwd":"/path/to/project","tokens":18400,"chars":55200,"results":12,"args":2}
+```
+
+`tokens` is estimated from `chars` with the calibrated chars-per-token ratio. [tokenburn](https://github.com/sorinirimies/tokenburn) and [pi-tokenburn](https://github.com/sorinirimies/pi-tokenburn) read the file and count it as a pi saving. The log stays on your machine, is never sent to the model, and costs no tokens. Turn it off with `"logSavings": false`.
 
 ## What it will and will not do
 
@@ -150,7 +162,7 @@ Tab-completion works for all of these. Unknown input prints usage instead of fai
 ## Security notes
 
 - **Fails open.** pi misbehaves when a `context` handler throws, so any unexpected error here means the conversation is sent unchanged. A UI that throws never changes what is sent either.
-- **Read-only apart from its own config.** No network, no shell commands, no file reads outside `context-diet.json`, **zero runtime dependencies**.
+- **Writes only its own files:** `context-diet.json` and, unless `logSavings` is off, `context-diet-savings.jsonl`. No network, no shell commands, no file reads outside `context-diet.json`, **zero runtime dependencies**.
 - **Hand-edited config is sanitised:** wrong types and out-of-range numbers fall back to defaults.
 
 ## Development

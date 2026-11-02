@@ -69,6 +69,6 @@ describe("every command documented in the README works", () => {
 	it("the documented defaults match the code", () => {
 		const md = readme();
 		const json = JSON.parse(md.match(/```json\n([\s\S]*?)```/)![1]);
-		expect(json).toEqual({ enabled: true, mode: "cold", keepTurns: 20, minChars: 1500, cacheTtlMinutes: 5, keepErrors: true, neverElide: [], showStatus: true, stubTailLines: 3, stubErrorLines: 3, elideArgs: true, autoProtect: true, recoveryThreshold: 0.25, warmArbitration: true, expectedTurns: 30, stopWarmingShare: 0.2, compact: false, compactAboveTokens: 150000 });
+		expect(json).toEqual({ enabled: true, mode: "cold", keepTurns: 20, minChars: 1500, cacheTtlMinutes: 5, keepErrors: true, neverElide: [], showStatus: true, stubTailLines: 3, stubErrorLines: 3, elideArgs: true, autoProtect: true, recoveryThreshold: 0.25, warmArbitration: true, expectedTurns: 30, stopWarmingShare: 0.2, compact: false, compactAboveTokens: 150000, logSavings: true });
 	});
 });

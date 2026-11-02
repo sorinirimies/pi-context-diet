@@ -32,9 +32,9 @@
  *   /context-diet compact <on|off|now>  compact an idle, big session with pi's own summariser (opt-in)
  */
 
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +78,8 @@ export interface DietConfig {
 	compact: boolean;
 	/** Context size, in tokens, above which an idle session is compacted. */
 	compactAboveTokens: number;
+	/** Append what each request saved to the savings log (for usage trackers such as tokenburn). */
+	logSavings: boolean;
 }
 
 export const DEFAULT_CONFIG: DietConfig = {
@@ -99,6 +101,7 @@ export const DEFAULT_CONFIG: DietConfig = {
 	stopWarmingShare: 0.2,
 	compact: false,
 	compactAboveTokens: 150_000,
+	logSavings: true,
 };
 
 const clampInt = (v: unknown, min: number, max: number, fallback: number): number =>
@@ -135,6 +138,7 @@ export function sanitizeConfig(raw: unknown): DietConfig {
 				: d.stopWarmingShare,
 		compact: typeof r.compact === "boolean" ? r.compact : d.compact,
 		compactAboveTokens: clampInt(r.compactAboveTokens, 20_000, 2_000_000, d.compactAboveTokens),
+		logSavings: typeof r.logSavings === "boolean" ? r.logSavings : d.logSavings,
 	};
 }
 
@@ -146,6 +150,42 @@ export function resolveAgentDir(env: Record<string, string | undefined>, home: s
 }
 
 const configPath = () => join(resolveAgentDir(process.env, homedir()), "context-diet.json");
+
+/**
+ * The savings log: one JSON line per request that had something elided, so usage trackers (tokenburn) can count
+ * what the diet saved over time. Local only; nothing of it is sent to the model.
+ */
+export const SAVINGS_LOG = "context-diet-savings.jsonl";
+
+export const savingsLogPath = (env: Record<string, string | undefined> = process.env, home: string = homedir()) =>
+	join(resolveAgentDir(env, home), SAVINGS_LOG);
+
+/** One line of the savings log. `tokens` is estimated from `chars` with the calibrated chars-per-token ratio. */
+export interface SavingRecord {
+	/** When the request was sent (ISO 8601, UTC). */
+	ts: string;
+	session: string;
+	cwd: string;
+	/** Tokens kept out of this request. */
+	tokens: number;
+	chars: number;
+	/** Tool results and write/edit arguments elided in it. */
+	results: number;
+	args: number;
+}
+
+export const savingLine = (r: SavingRecord): string => JSON.stringify(r) + "\n";
+
+/** Appends one record. Never throws: a log that cannot be written must not affect the session. */
+export async function appendSaving(record: SavingRecord, path: string = savingsLogPath()): Promise<boolean> {
+	try {
+		await mkdir(dirname(path), { recursive: true });
+		await appendFile(path, savingLine(record), "utf8");
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 /**
  * The config, plus a `problem` when the file exists but cannot be used (unreadable or not JSON). A missing file is
@@ -1089,6 +1129,17 @@ export default function contextDiet(pi: ExtensionAPI) {
 			stats.lastArgCount = result.argCount;
 			stats.lastChars = result.savedChars;
 			stats.cumulativeChars += result.savedChars;
+			if (config.logSavings) {
+				void appendSaving({
+					ts: new Date(Date.now()).toISOString(),
+					session: ctx.sessionManager?.getSessionId?.() ?? "",
+					cwd: ctx.cwd ?? "",
+					tokens: estimateTokens(result.savedChars, cpt()),
+					chars: result.savedChars,
+					results: result.count,
+					args: result.argCount,
+				});
+			}
 			showStatus(ctx);
 			return { messages: result.messages as unknown as typeof event.messages };
 		} catch {

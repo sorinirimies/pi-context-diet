@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import contextDiet, { COMPACT_COOLDOWN_TURNS, charsOfMessages, timing, type Message } from "../extensions/context-diet.ts";
+import contextDiet, { COMPACT_COOLDOWN_TURNS, SAVINGS_LOG, charsOfMessages, timing, type Message } from "../extensions/context-diet.ts";
 import { big, convo, isStub, resetIds, resultsOf, text, turn, user } from "./helpers.ts";
 
 const MIN = 60_000;
@@ -59,7 +59,8 @@ describe("extension wiring", () => {
 			get model() {
 				return live.model;
 			},
-			sessionManager: { getEntries: () => opts.entries ?? [] },
+			sessionManager: { getEntries: () => opts.entries ?? [], getSessionId: () => "s-1" },
+			cwd: "/work/demo",
 			ui: {
 				theme: { fg: (_c: string, t: string) => t },
 				setStatus: (_k: string, v: string) => {
@@ -77,6 +78,37 @@ describe("extension wiring", () => {
 
 	/** 30 turns that ended `agoMs` ago. */
 	const longConvo = (agoMs: number) => convo(30, { endTs: clock - agoMs });
+
+	/** The savings log after pending appends have landed. */
+	const savingsLog = async () => {
+		await new Promise((r) => setTimeout(r, 20));
+		const path = join(dir, SAVINGS_LOG);
+		return existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [];
+	};
+
+	it("logs what each request saved for usage trackers", async () => {
+		const t = await boot({ config: { keepTurns: 5 } });
+		const messages = longConvo(10 * MIN);
+		t.request(messages);
+		t.request(messages);
+		const log = await savingsLog();
+		expect(log).toHaveLength(2);
+		expect(log[0]).toMatchObject({ ts: new Date(clock).toISOString(), session: "s-1", cwd: "/work/demo", results: 24, args: 0 });
+		expect(log[0].chars).toBeGreaterThan(0);
+		expect(log[0].tokens).toBe(Math.round(log[0].chars / 3));
+	});
+
+	it("logs nothing for a request with nothing elided", async () => {
+		const t = await boot({ config: { keepTurns: 5 } });
+		t.request(longConvo(MIN));
+		expect(await savingsLog()).toEqual([]);
+	});
+
+	it("logs nothing when logSavings is off, and still elides", async () => {
+		const t = await boot({ config: { keepTurns: 5, logSavings: false } });
+		expect(t.request(longConvo(10 * MIN))).toBeDefined();
+		expect(await savingsLog()).toEqual([]);
+	});
 
 	it("loads the config file at session start", async () => {
 		const t = await boot({ config: { enabled: false } });
