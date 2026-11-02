@@ -191,11 +191,11 @@ just demo             # try it yourself in a real pi: ask it to "Survey the proj
 | **Gitea Actions Update** | Mondays 03:15 UTC | Gitea has no Dependabot: moves the sha pins in `.gitea/workflows` to the newest release of the **same major** and commits `ci(deps)`; a new major is only reported |
 | **Nightly Dependency Update** | every night (GitHub 02:00 UTC) and after each auto-merge | `bun update` within ranges, verify on all platforms, commit `chore(deps)`; then **build, tag and publish a new patch** whenever a library was upgraded or merged, or `feat`/`fix`/`perf` commits are waiting since the last tag |
 | **Mirror GitHub** (Gitea) | hourly | Gitea has no nightly of its own: fast-forwards its `main` to GitHub's and pushes the new tags (starting Gitea's release for each), so the hosts never diverge; fails loudly if they did |
-| **Release** | tag `vX.Y.Z` | validates the tag against `package.json`, runs the gate, `npm publish` (idempotent, with provenance), creates the release |
+| **Release** | tag `vX.Y.Z`, or run it with a bump | validates the tag against `package.json`, runs the gate, `npm publish` (idempotent, with provenance), creates the release |
 
 So library updates need no human: they are merged once CI passes, built, versioned and published as a patch. A downgrade, a failing check, or a major update stops the chain and waits for review.
 
-Manual release: `just release patch` (or `minor` / `major` / `X.Y.Z`) bumps, tags and pushes to GitHub; `just release-all patch` pushes to every configured remote; `just push-release-all` pushes an existing bump.
+Release from CI: **Actions → Release → Run workflow** with a bump (`patch`, `minor`, `major`), or `just release-ci minor`: runs the gate, bumps, writes the changelog, tags, pushes and publishes. Manual release: `just release patch` (or `minor` / `major` / `X.Y.Z`) bumps, tags and pushes to GitHub; `just release-all patch` pushes to every configured remote; `just push-release-all` pushes an existing bump.
 
 **Secrets** (repo settings): `NPM_TOKEN` is an npm *granular access token* with publish rights and "bypass 2FA" (required for CI publishing). `GH_PAT` (classic PAT, `repo` + `workflow`: needed to auto-merge GitHub Actions bumps; also lets a tag push trigger the release itself). Optional: `GITEA_TOKEN` (Gitea).
 

@@ -304,6 +304,10 @@ push-release-all-force: check
 # Short name for push-release-all
 alias release-push := push-release-all
 
+# Release from CI: gate, bump (patch | minor | major | current), changelog, tag, push, publish
+release-ci bump="patch":
+    gh workflow run release.yml -f bump={{ bump }}
+
 # Manually re-trigger the Release workflow for an existing tag via the gh CLI
 release-retrigger version:
     @command -v gh >/dev/null 2>&1 || { echo "❌ GitHub CLI (gh) not found. Install from https://cli.github.com"; exit 1; }
