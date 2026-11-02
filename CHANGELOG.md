@@ -3,6 +3,16 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.4.0](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.4.0) — 2026-11-02
+
+
+### ✨ Features
+
+- Log what each request saved to context-diet-savings.jsonl for usage trackers ([`6515534`](https://github.com/sorinirimies/pi-context-diet/commit/65155343e074ccd1d64c0af00cec43eeaeb5c5cc))
+
+### 🔧 Build & CI
+
+- **deps:** Bump Gitea workflow actions ([`367e8c5`](https://github.com/sorinirimies/pi-context-diet/commit/367e8c52b076ea4a10ff4211052fe122378f74fd))
 ## [0.3.8](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.8) — 2026-11-02
 
 
@@ -89,10 +99,6 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 ### 🐛 Fixes
 
 - Never rewrite assistant messages with thinking blocks (API 400 on signed thinking) ([`9d9c91c`](https://github.com/sorinirimies/pi-context-diet/commit/9d9c91c9cfc08ce2e3a7c3ef2c60a079a56ae448))
-
-### 🔧 Build & CI
-
-- Publish only when a runtime dependency really upgrades (or feat/fix/perf); dev-tooling updates no longer release ([`0842ac5`](https://github.com/sorinirimies/pi-context-diet/commit/0842ac50efd2d26ccead0d2ef6d6aadf9ebe9506))
 ## [0.3.3](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.3) — 2026-10-14
 
 
@@ -105,6 +111,7 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 
 - Don't release on ci(deps) (GitHub Actions) bumps ([`f843efa`](https://github.com/sorinirimies/pi-context-diet/commit/f843efac56cdffab05961ccbcad0e8e7477310b0))
 - Don't release on ci(deps) (GitHub Actions) bumps ([`9d82f89`](https://github.com/sorinirimies/pi-context-diet/commit/9d82f89942d973d6033aa8c02b7fbb1c9cfc8266))
+- Publish only when a runtime dependency really upgrades (or feat/fix/perf); dev-tooling updates no longer release ([`0842ac5`](https://github.com/sorinirimies/pi-context-diet/commit/0842ac50efd2d26ccead0d2ef6d6aadf9ebe9506))
 ## [0.3.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.1) — 2026-10-12
 
 
