@@ -3,6 +3,22 @@
 Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 [git-cliff](https://git-cliff.org). Do not edit by hand.
 
+## [0.4.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.4.1) — 2026-11-09
+
+
+### 🐛 Fixes
+
+- **ci:** Nightly commit step accepts bool arg from nu ([`6a01144`](https://github.com/sorinirimies/pi-context-diet/commit/6a0114434a48029f17439f71246b09883493f2fa))
+
+### 🔧 Build & CI
+
+- Align tooling with the plugin template ([`601ee7b`](https://github.com/sorinirimies/pi-context-diet/commit/601ee7bd3223a29937cb0df708b1d823dcc5e6ec))
+- Scan the git history for secrets with gitleaks ([`6d64c7e`](https://github.com/sorinirimies/pi-context-diet/commit/6d64c7edce54e932bb2b8232689667d6c3a6d1f3))
+
+### 🧹 Chores
+
+- Nightly dev-tooling lockfile update 2026-11-03 (not released) ([`6d54968`](https://github.com/sorinirimies/pi-context-diet/commit/6d54968645d3bf64963f0eb649d69fb872dd49ca))
+- Nightly dev-tooling lockfile update 2026-11-09 (not released) ([`d3ed00d`](https://github.com/sorinirimies/pi-context-diet/commit/d3ed00dade9ffc164fcbfdff9dee34c412860b63))
 ## [0.4.0](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.4.0) — 2026-11-02
 
 
@@ -99,6 +115,10 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 ### 🐛 Fixes
 
 - Never rewrite assistant messages with thinking blocks (API 400 on signed thinking) ([`9d9c91c`](https://github.com/sorinirimies/pi-context-diet/commit/9d9c91c9cfc08ce2e3a7c3ef2c60a079a56ae448))
+
+### 🔧 Build & CI
+
+- Publish only when a runtime dependency really upgrades (or feat/fix/perf); dev-tooling updates no longer release ([`0842ac5`](https://github.com/sorinirimies/pi-context-diet/commit/0842ac50efd2d26ccead0d2ef6d6aadf9ebe9506))
 ## [0.3.3](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.3) — 2026-10-14
 
 
@@ -111,7 +131,6 @@ Generated from [Conventional Commits](https://www.conventionalcommits.org) by
 
 - Don't release on ci(deps) (GitHub Actions) bumps ([`f843efa`](https://github.com/sorinirimies/pi-context-diet/commit/f843efac56cdffab05961ccbcad0e8e7477310b0))
 - Don't release on ci(deps) (GitHub Actions) bumps ([`9d82f89`](https://github.com/sorinirimies/pi-context-diet/commit/9d82f89942d973d6033aa8c02b7fbb1c9cfc8266))
-- Publish only when a runtime dependency really upgrades (or feat/fix/perf); dev-tooling updates no longer release ([`0842ac5`](https://github.com/sorinirimies/pi-context-diet/commit/0842ac50efd2d26ccead0d2ef6d6aadf9ebe9506))
 ## [0.3.1](https://github.com/sorinirimies/pi-context-diet/releases/tag/v0.3.1) — 2026-10-12
 
 
